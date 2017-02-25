@@ -1,0 +1,38 @@
+name:                auto-push
+version:             0.1.0.0
+synopsis:            Auto-push
+-- description:         
+homepage:            http://github.com/bgamari/auto-push
+license:             BSD3
+license-file:        LICENSE
+author:              Ben Gamari
+maintainer:          ben@well-typed.com
+-- copyright:           
+category:            Development
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+executable auto-push
+  main-is:             Main.hs
+  other-modules:       Git
+                       PushMerge
+                       Utils
+                       Hooks
+                       Server
+  other-extensions:    GeneralizedNewtypeDeriving
+  build-depends:       base >=4.9 && <4.10,
+                       stm >= 2.4,
+                       async >= 2.1,
+                       process >=1.4 && <1.5,
+                       optparse-applicative >= 0.12,
+                       bytestring >=0.10 && <0.11,
+                       text >= 1.2,
+                       containers >= 0.5,
+                       aeson >= 1.0,
+                       network-uri >= 2.6,
+                       warp >= 3.2,
+                       http-client >= 0.4,
+                       servant-server >= 0.8,
+                       servant-client
+  default-language:    Haskell2010

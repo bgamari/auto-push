@@ -1,0 +1,3 @@
+packages: .
+          /opt/exp/haskell-packages/{generics-sop,hashable}
+
