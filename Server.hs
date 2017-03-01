@@ -20,6 +20,7 @@ type Api =
          "branch" :> Capture "branch" Ref
                   :> ReqBody '[JSON] SHA
                   :> Post '[JSON] (Either NewMergeRequestError MergeRequestId)
+     <|> "merge" :> Capture "merge" MergeRequestId :> Delete '[PlainText] ()
 
 server :: PushMerge.Server -> Servant.Server Api
 server server = postBranch
