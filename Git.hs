@@ -31,7 +31,7 @@ resolveRef repo ref =
     SHA . T.pack <$> runGit repo "rev-parse" [showRef ref] ""
 
 rebase :: GitRepo
-       -> CommitRange  -- ^ base and head
+       -> CommitRange  -- ^ range of commits to rebase (e.g. base..head)
        -> SHA          -- ^ onto
        -> IO CommitRange
 rebase repo (CommitRange base head) onto =
@@ -101,3 +101,17 @@ updateRefs repo actions =
         unwords ["delete", sRef ref, sSHA old]
     toLine (DeleteRef ref Nothing) =
         unwords ["delete", sRef ref]
+
+newtype Remote = Remote T.Text
+
+push :: GitRepo -> Remote -> Commit -> Ref -> IO ()
+push repo (Remote remote) commit ref =
+    void $ runGit repo "push" [ T.unpack remote
+                              , showCommit commit ++ ":" ++ showRef ref
+                              ] ""
+
+clone :: GitRepo -> FilePath -> IO GitRepo
+clone (GitRepo src) dest = do
+    void $ readProcess "git" ["clone", src, dest] ""
+    return dest'
+  where dest' = GitRepo dest

@@ -1,5 +1,5 @@
 packages: .
-          /opt/exp/haskell-packages/{generics-sop,hashable,servant,comonad,memory}
+          /opt/exp/haskell-packages/{generics-sop,hashable,servant,comonad,memory,parallel,lens}
           /opt/exp/haskell-packages/servant/{servant,servant-server}
 
-allow-newer: base, template-haskell, time, directory, semigroupoids
+allow-newer: base, template-haskell, time, directory, semigroupoids, containers, deepseq
