@@ -60,7 +60,7 @@ git checkout -b branch2 master
 do_commit file2
 git push origin branch1:merge/master
 git push origin branch2:merge/master
-sleep 1
+sleep 3
 
 echo
 git remote update

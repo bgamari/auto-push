@@ -45,7 +45,7 @@
 -- Now say we receive another request, this time to merge @feature-2@,
 -- @
 -- .. ── A ── B       ⇐ master
---        ╰── D ── E  ⇐ feature-2
+--       ╰── D ── E   ⇐ feature-2
 -- @
 -- Again we will rebase @feature-2@ on top of @branch_head@ (now @C'@), producing
 -- a branch headed by @E'@,
@@ -196,9 +196,11 @@ branchWorker server branch eventQueue = do
   where
     go :: WorkerM ()
     go = do
-        logMsg "worker go"
+        uses mergeQueue $ \q -> logMsg $ "Merge queue: "++show (toList q)
+        q <- use mergeQueue
+        logMsg $ "Merge queue: "++show (toList q)
         join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
-        _ <- runMaybeT mergeGoodRequests
+        mergeGoodRequests
         logMsg "worker waiting"
         doEvent <- join $ uses id $ liftIO . atomically . getEvent
         logMsg "have event"
@@ -216,17 +218,22 @@ branchWorker server branch eventQueue = do
                   -- Fetch and rebase branch
                   liftIO $ Git.fetch repo originRemote [toOrigRef reqId]
                   lift $ logMsg $ "Fetched"
-                  let handleRebaseFail e@GitException{} = do
+                  let handleOther e@(SomeException _) = do
+                          logMsg $ "2Failed to rebase "++show reqId++": "++show e
+                          mrStatus reqId .= FailedToRebase brHead
+                          return Nothing
+                      handleRebaseFail e@GitException{} = do
                           logMsg $ "Failed to rebase "++show reqId++": "++show e
                           mrStatus reqId .= FailedToRebase brHead
                           return Nothing
-                  commits <- MaybeT $ handle handleRebaseFail
+                  commits <- MaybeT $ handle handleOther $ handle handleRebaseFail
                              $ fmap Just $ liftIO $ Git.rebase repo reqCommits brHead
                   let head' = headCommit commits
+                  lift $ logMsg $ "Rebased "++show reqId++": "++show commits
 
                   -- Push rebased commits
                   liftIO $ Git.push repo originRemote (CommitSha head') (toBuildRef reqId)
-                  lift $ logMsg $ "Rebased "++show reqId++": "++show commits
+                  lift $ logMsg $ "Pushed rebase "++show reqId++": "++show commits
                   return commits
 
               lift $ branchHead .= headCommit commits
@@ -235,22 +242,31 @@ branchWorker server branch eventQueue = do
               lift $ logMsg $ show reqId++" is now building"
           _ -> return ()
 
-    mergeGoodRequests :: MaybeT WorkerM ()
-    mergeGoodRequests = do
+    mergeGoodRequests :: WorkerM ()
+    mergeGoodRequests = void $ runMaybeT $ do
         queue <- lift $ use mergeQueue
         (reqId, rest) <- MaybeT $ pure $ popQueue queue
-        Succeeded (CommitRange baseSha headSha) <- lift $ use $ mrStatus reqId
-        lift $ logMsg $ "Trying to merge "++show reqId
-        let tryAgain :: SomeException -> MaybeT WorkerM ()
-            tryAgain _ = do
-                lift $ mrStatus reqId .= PendingBuild
-                mzero
-        handle tryAgain $
-            liftIO $ updateRefs (serverRepo server)
-                                [ UpdateRef (upstreamBranch branch) headSha (Just baseSha) ]
-        lift $ mergeQueue .= rest
-        lift $ logMsg $ "Successfully merged "++show reqId
-        mergeGoodRequests
+        status <- lift $ use $ mrStatus reqId
+        case status of
+          Succeeded (CommitRange baseSha headSha) -> do
+              lift $ logMsg $ "Trying to merge "++show reqId
+              let tryAgain :: SomeException -> MaybeT WorkerM ()
+                  tryAgain _ = do
+                      lift $ mrStatus reqId .= PendingBuild
+                      mzero
+              handle tryAgain $
+                  liftIO $ updateRefs (serverRepo server)
+                                      [ UpdateRef (upstreamBranch branch) headSha (Just baseSha) ]
+              lift $ mergeQueue .= rest
+              lift $ logMsg $ "Successfully merged "++show reqId
+              lift $ mergeGoodRequests
+
+          FailedToBuild _ err -> lift $ do
+              logMsg $ "Giving up on "++show reqId++" due to build failure: "++err
+              invalidateSuccessorBuilds reqId
+              mergeQueue .= rest
+
+          _ -> return ()
 
     getEvent :: WorkerState -> STM (WorkerM ())
     getEvent s = getRequest <|> getBuildFinished
@@ -297,20 +313,23 @@ branchWorker server branch eventQueue = do
 
     handleBuildFinished :: MergeRequestId -> CommitRange -> BuildResult -> WorkerM ()
     handleBuildFinished reqId rebasedCommits (BuildFailed msg) = do
+        invalidateSuccessorBuilds reqId
+        mrStatus reqId .= FailedToBuild rebasedCommits msg
+    handleBuildFinished reqId rebasedCommits BuildSucceeded = do
+        mrStatus reqId .= Succeeded rebasedCommits
+
+    invalidateSuccessorBuilds :: MergeRequestId -> WorkerM ()
+    invalidateSuccessorBuilds reqId = do
         req <- use $ mr reqId
         Just succs <- uses mergeQueue $ successors reqId
         mapM_ cancelBuild succs
-        mrStatus reqId .= FailedToBuild rebasedCommits msg
-        failedMerges %= (reqId :)
-    handleBuildFinished reqId rebasedCommits BuildSucceeded = do
-        mrStatus reqId .= Succeeded rebasedCommits
 
     -- Cancel any builds associated with a merge request and mark it as pending
     cancelBuild :: MergeRequestId -> WorkerM ()
     cancelBuild reqId = do
         req <- use $ mr reqId
         case req ^. mergeReqStatus of
-          Building _ builder -> liftIO $ cancel builder
+          Building _ builder -> do liftIO $ cancel builder
           _                  -> return ()
         mrStatus reqId .= PendingBuild
 

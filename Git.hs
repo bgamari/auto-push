@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Git
     ( -- * Identifying objects
@@ -89,9 +90,9 @@ rebase :: GitRepo
        -> IO CommitRange
 rebase repo commits@(CommitRange base head) onto
   | base == onto = return commits
-  | otherwise =
-    CommitRange onto . SHA . T.strip . T.pack <$> runGit repo "rebase"
-        ["--onto", showSHA onto, showSHA base, showSHA head] ""
+  | otherwise    = do
+    runGit repo "rebase" ["--onto", showSHA onto, showSHA base, showSHA head] ""
+    CommitRange onto <$> resolveRef repo (Ref "HEAD")
 
 checkout :: GitRepo
          -> Bool -- ^ force
