@@ -309,7 +309,9 @@ branchWorker server branch eventQueue = do
         return reqId
     handleBranchRequest (CancelMergeRequest {..}) = cancelBuild cancelMergeReqId
     handleBranchRequest (GetBranchStatus{}) =
-        return undefined -- TODO
+        BranchStatus
+            <$> use branchHead
+            <*> uses mergeRequests (M.toList . fmap (views mergeReqStatus $ fmap $ const ()))
 
     handleBuildFinished :: MergeRequestId -> CommitRange -> BuildResult -> WorkerM ()
     handleBuildFinished reqId rebasedCommits (BuildFailed msg) = do

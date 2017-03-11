@@ -87,7 +87,8 @@ data RequestStatus a
     | Building CommitRange a           -- ^ building the given rebased commits
     | FailedToBuild CommitRange String -- ^ failed to build the given rebased commits
     | Succeeded CommitRange            -- ^ the given rebased commits were built sucessfully
-    deriving (Show, Functor)
+    deriving (Show, Functor, Generic)
+    deriving anyclass (FromJSON, ToJSON)
 
 data BuildResult = BuildSucceeded
                  | BuildFailed String
@@ -108,5 +109,7 @@ data BranchRequest a where
 data BranchStatus = BranchStatus { branchCurrentHead :: SHA
                                  , branchMergeRequests :: [(MergeRequestId, RequestStatus ())]
                                  }
+                  deriving (Show, Generic)
+                  deriving anyclass (FromJSON, ToJSON)
 
 makeLenses ''MergeRequestState
