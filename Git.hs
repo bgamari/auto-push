@@ -10,6 +10,7 @@ module Git
     , Commit(..), showCommit
     , SHA(..), showSHA, zeroSHA
     , Ref(..), showRef
+    , Branch(..), isBranch, branchRef
       -- * Repositories
     , cwdRepo
     , GitRepo(..)
@@ -31,6 +32,7 @@ module Git
     , GitException(..)
     ) where
 
+import Data.Semigroup
 import Control.Monad
 import GHC.Generics
 import System.Exit
@@ -120,6 +122,22 @@ instance FromHttpApiData Ref where
 
 instance ToHttpApiData Ref where
     toUrlPiece (Ref x) = T.pack $ escapeURIString isUnescapedInURIComponent (T.unpack x)
+
+newtype Branch = Branch { getBranchName :: T.Text }
+            deriving (Show, Eq, Ord)
+            deriving newtype (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
+
+instance FromHttpApiData Branch where
+    parseUrlPiece = Right . Branch . T.pack . unEscapeString . T.unpack
+
+instance ToHttpApiData Branch where
+    toUrlPiece (Branch x) = T.pack $ escapeURIString isUnescapedInURIComponent (T.unpack x)
+
+isBranch :: Ref -> Maybe Branch
+isBranch (Ref b) = Branch <$> T.stripPrefix "refs/heads/" b
+
+branchRef :: Branch -> Ref
+branchRef (Branch b) = Ref $ "refs/heads/" <> b
 
 data Commit = CommitSha SHA
             | CommitRef Ref

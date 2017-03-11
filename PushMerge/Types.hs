@@ -18,7 +18,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Control.Concurrent.Async
 import Control.Lens
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
 import Servant (ToHttpApiData, FromHttpApiData)
 
 import Git
@@ -51,20 +51,21 @@ successors x (Queue xs) = go xs
 
 
 -- | A branch which we are responsible for merging into.
-newtype ManagedBranch = ManagedBranch { getManagedBranchName :: T.Text }
+newtype ManagedBranch = ManagedBranch Branch
                       deriving (Show, Eq, Ord, Generic)
-                      deriving newtype (FromJSON, ToJSON, FromHttpApiData, ToHttpApiData)
+                      deriving newtype (FromJSON, ToJSON, FromJSONKey, ToJSONKey,
+                                        FromHttpApiData, ToHttpApiData)
 
-isMergeBranch :: Ref -> Maybe ManagedBranch
-isMergeBranch (Ref ref) = ManagedBranch <$> T.stripPrefix "refs/heads/merge/" ref
+isMergeBranch :: Branch -> Maybe ManagedBranch
+isMergeBranch (Branch ref) = ManagedBranch . Branch <$> T.stripPrefix "merge/" ref
 
 -- | The name of the branch which we pull merge requests from
-mergeBranch :: ManagedBranch -> Ref
-mergeBranch (ManagedBranch name) = Ref $ "refs/heads/merge/" <> name
+mergeBranch :: ManagedBranch -> Branch
+mergeBranch (ManagedBranch branch) = Branch $ "merge/" <> getBranchName branch
 
 -- | The name of the branch which we are merging to
-upstreamBranch :: ManagedBranch -> Ref
-upstreamBranch (ManagedBranch name) = Ref $ "refs/heads/" <> name
+upstreamBranch :: ManagedBranch -> Branch
+upstreamBranch (ManagedBranch branch) = branch
 
 
 

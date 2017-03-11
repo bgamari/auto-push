@@ -70,13 +70,17 @@ module PushMerge
     ( startServer
     , Server
       -- * Types
+    , ManagedBranch
     , MergeRequestId
+    , isMergeBranch
       -- * Requests
     , BranchNotManagedException(..)
     , newMergeRequest
     , NewMergeRequestError(..)
     , cancelMergeRequest
-    , isMergeBranch
+    , getBranchStatus
+    , BranchStatus(..)
+    , listBranches
     ) where
 
 import Control.Monad
@@ -90,7 +94,7 @@ import Control.Monad.Trans.State
 import Control.Monad.Catch
 import Data.Maybe
 import Data.Semigroup
-import Data.Foldable (toList, asum)
+import Data.Foldable (toList, asum, fold)
 import System.Process
 import System.Directory
 import System.IO.Temp
@@ -184,7 +188,7 @@ toBuildRef (MergeRequestId n) = Ref $ "refs/heads/auto-push/to-build/" <> T.pack
 branchWorker :: Server -> ManagedBranch -> RpcChan BranchRequest -> IO ()
 branchWorker server branch eventQueue = do
     putStrLn $ "worker for "++show branch
-    head <- resolveRef (serverRepo server) (upstreamBranch branch)
+    head <- resolveRef (serverRepo server) (branchRef $ upstreamBranch branch)
     putStrLn $ "HEAD is " ++ show head
     let s0 :: WorkerState
         s0 = WorkerState { _mergeQueue    = emptyQueue
@@ -256,7 +260,7 @@ branchWorker server branch eventQueue = do
                       mzero
               handle tryAgain $
                   liftIO $ updateRefs (serverRepo server)
-                                      [ UpdateRef (upstreamBranch branch) headSha (Just baseSha) ]
+                                      [ UpdateRef (branchRef $ upstreamBranch branch) headSha (Just baseSha) ]
               lift $ mergeQueue .= rest
               lift $ logMsg $ "Successfully merged "++show reqId
               lift $ mergeGoodRequests
@@ -294,7 +298,7 @@ branchWorker server branch eventQueue = do
     handleBranchRequest :: BranchRequest a -> WorkerM a
     handleBranchRequest (NewMergeRequest {..}) = do
         baseCommit <- liftIO $ Git.mergeBase (serverRepo server)
-                                             (CommitRef $ upstreamBranch branch)
+                                             (CommitRef $ branchRef $ upstreamBranch branch)
                                              (CommitSha newMergeReqHead)
         reqId <- liftIO $ freshRequestId server
         liftIO $ Git.updateRefs (serverRepo server)
@@ -344,9 +348,9 @@ branchWorker server branch eventQueue = do
 data BranchNotManagedException = BranchNotManagedException
                                deriving (Exception, Show)
 
-branchRequest :: Server -> Ref -> BranchRequest a -> IO a
-branchRequest server ref req
-  | Just managed <- isMergeBranch ref = do
+branchRequest :: Server -> Branch -> BranchRequest a -> IO a
+branchRequest server branch req
+  | Just managed <- isMergeBranch branch = do
         putStrLn "Request"
         r <- atomically $ do
             branches <- readTVar $ serverBranches server
@@ -358,23 +362,31 @@ branchRequest server ref req
         case r of
           Right chan -> sendRpc chan req
           Left chan -> do
-              putStrLn $ "Starting worker for "++show ref
+              putStrLn $ "Starting worker for "++show branch
               worker <- async $ branchWorker server managed chan
               link worker
-              branchRequest server ref req
+              branchRequest server branch req
   | otherwise = throwM $ BranchNotManagedException
 
 data NewMergeRequestError = CommitHasNoMergeBase
                           deriving (Show, Generic, Exception)
                           deriving anyclass (FromJSON, ToJSON)
 
-newMergeRequest :: Server -> Ref -> SHA
+newMergeRequest :: Server -> Branch -> SHA
                 -> IO MergeRequestId
-newMergeRequest server ref headCommit =
-    branchRequest server ref
+newMergeRequest server branch headCommit =
+    branchRequest server branch
     $ NewMergeRequest { newMergeReqHead = headCommit }
 
 cancelMergeRequest :: Server -> MergeRequestId -> IO ()
 cancelMergeRequest server reqId = do
     undefined
     --branchRequest server ref
+
+getBranchStatus :: Server -> Branch -> IO BranchStatus
+getBranchStatus server branch =
+    branchRequest server branch $ GetBranchStatus
+
+listBranches :: Server -> IO [ManagedBranch]
+listBranches server =
+    atomically $ fmap M.keys $ readTVar (serverBranches server)

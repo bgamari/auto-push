@@ -38,15 +38,17 @@ postReceive repo = do
     -- Reset push branch back to former state
     let updates' = [ UpdateRef ref old Nothing
                    | (old, new, ref) <- updates
-                   , Just _ <- pure $ isMergeBranch ref
+                   , Just branch <- pure $ isBranch ref
+                   , Just _ <- pure $ isMergeBranch branch
                    ]
     logMsg $ show updates'
     updateRefs repo updates'
 
     let postMergeRequest :: (SHA, SHA, Ref) -> ClientM ()
         postMergeRequest (old, new, ref)
-          | Just _ <- isMergeBranch ref = do
-            mergeReqId <- reqNewMergeRequest ref new
+          | Just branch <- isBranch ref
+          , Just _ <- isMergeBranch branch = do
+            mergeReqId <- reqNewMergeRequest branch new
             case mergeReqId of
               reqId -> liftIO $ putStrLn $ "Reply: "++show reqId
               --Left BranchNotManaged -> liftIO $ putStrLn $ "Branch "++show ref++" is not managed"

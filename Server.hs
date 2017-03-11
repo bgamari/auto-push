@@ -5,6 +5,7 @@ module Server where
 
 import Control.Monad.IO.Class
 import Control.Monad.Catch
+import qualified Data.Map as M
 import qualified Network.Wai.Handler.Warp
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Servant
@@ -18,27 +19,44 @@ serverPort :: Int
 serverPort = 8880
 
 type Api =
-         "branch" :> Capture "branch" Ref
-                  :> ReqBody '[JSON] SHA
-                  :> Post '[JSON] MergeRequestId
-     :<|> "merge" :> Get '[JSON] [MergeRequestId]
-     :<|> "merge" :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
+          "branch" :> Capture "branch" Branch
+                   :> ReqBody '[JSON] SHA
+                   :> Post '[JSON] MergeRequestId
+     :<|> "branch" :> Capture "branch" Branch
+                   :> Get '[JSON] BranchStatus
+     :<|> "branch" :> Get '[JSON] [ManagedBranch]
+     :<|> "merge"  :> Get '[JSON] [MergeRequestId]
+     :<|> "merge"  :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
 
 server :: PushMerge.Server -> Servant.Server Api
-server server = newMergeRequest :<|> listMergeRequests :<|> cancelMergeRequest
+server server =
+         newMergeRequest
+    :<|> getBranchStatus
+    :<|> listBranches
+    :<|> listMergeRequests
+    :<|> cancelMergeRequest
   where
     newMergeRequest ref sha =
         catchBranchNotManaged $ liftIO $ PushMerge.newMergeRequest server ref sha
-    listMergeRequests = return []
+    getBranchStatus ref =
+        catchBranchNotManaged $ liftIO $ PushMerge.getBranchStatus server ref
+    listBranches =
+        liftIO $ PushMerge.listBranches server
+    listMergeRequests =
+        undefined
     cancelMergeRequest reqId =
         liftIO $ PushMerge.cancelMergeRequest server reqId
 
     catchBranchNotManaged = handle (\BranchNotManagedException -> throwM err403)
 
-reqNewMergeRequest :: Ref -> SHA -> ClientM MergeRequestId
+reqNewMergeRequest :: Branch -> SHA -> ClientM MergeRequestId
+reqGetBranchStatus :: Branch -> ClientM BranchStatus
+reqListBranches :: ClientM [ManagedBranch]
 reqListMergeRequests :: ClientM [MergeRequestId]
 reqCancelMergeRequest :: MergeRequestId -> ClientM ()
 reqNewMergeRequest
+    :<|> reqGetBranchStatus
+    :<|> reqListBranches
     :<|> reqListMergeRequests
     :<|> reqCancelMergeRequest
     = client api
