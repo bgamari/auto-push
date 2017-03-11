@@ -24,31 +24,31 @@ readReceiveRefs = mapMaybe parse . T.lines <$> T.getContents
       | otherwise
       = Nothing
 
-preReceive :: IO ()
-preReceive = do
+preReceive :: GitRepo -> IO ()
+preReceive _ = do
     updates <- readReceiveRefs
     logMsg $ show updates
     return ()
 
-postReceive :: IO ()
-postReceive = do
+postReceive :: GitRepo -> IO ()
+postReceive repo = do
     updates <- readReceiveRefs
     logMsg $ show updates
+
     -- Reset push branch back to former state
-    updateRefs theRepo [ UpdateRef ref old Nothing
-                       | (old, new, ref) <- updates
-                       , Just _ <- pure $ isMergeBranch ref
-                       ]
-    logMsg $ show      [ UpdateRef ref old Nothing
-                       | (old, new, ref) <- updates
-                       , Just _ <- pure $ isMergeBranch ref
-                       ]
+    let updates' = [ UpdateRef ref old Nothing
+                   | (old, new, ref) <- updates
+                   , Just _ <- pure $ isMergeBranch ref
+                   ]
+    logMsg $ show updates'
+    updateRefs repo updates'
+
     let postMergeRequest :: (SHA, SHA, Ref) -> ClientM ()
         postMergeRequest (old, new, ref) = do
-            mergeReqId <- reqNewMergeRequest ref new
+            mergeReqId <- reqNewMergeRequest ref (CommitRange old new)
             case mergeReqId of
-              Right reqId -> liftIO $ putStrLn $ show reqId
-              Left BranchNotManaged -> liftIO $ putStrLn $ "Branch "++show ref++" is not managed"
-              Left CommitHasNoMergeBase -> liftIO $ putStrLn $ "Commit "++show ref++" has no merge base with branch "++show ref
+              reqId -> liftIO $ putStrLn $ show reqId
+              --Left BranchNotManaged -> liftIO $ putStrLn $ "Branch "++show ref++" is not managed"
+              --Left CommitHasNoMergeBase -> liftIO $ putStrLn $ "Commit "++show ref++" has no merge base with branch "++show ref
     request $ mapM_ postMergeRequest updates
     return ()

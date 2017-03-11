@@ -1,7 +1,27 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Git where
+module Git
+    ( -- * Identifying objects
+      CommitRange(..)
+    , Commit(..), showCommit
+    , SHA(..), showSHA, zeroSHA
+    , Ref(..), showRef
+      -- * Repositories
+    , cwdRepo
+    , GitRepo(..)
+    , clone
+      -- * Querying repositories
+    , resolveRef
+    , mergeBase
+      -- * Manipulating repositories
+    , rebase
+    , checkout
+    , updateRefs
+    , UpdateRefAction(..)
+    , Remote(..)
+    , push
+    ) where
 
 import Control.Monad
 import GHC.Generics
@@ -15,6 +35,9 @@ import Servant
 
 newtype GitRepo = GitRepo FilePath
 
+cwdRepo :: GitRepo
+cwdRepo = GitRepo "."
+
 -- | A range of commits which we can merge.
 data CommitRange = CommitRange { baseCommit :: SHA
                                , headCommit :: SHA
@@ -23,8 +46,13 @@ data CommitRange = CommitRange { baseCommit :: SHA
 instance ToJSON CommitRange
 instance FromJSON CommitRange
 
+logMsg :: String -> IO ()
+logMsg msg = putStrLn msg
+
 runGit :: GitRepo -> String -> [String] -> String -> IO String
-runGit (GitRepo path) cmd args = readProcess "git" (["-C", path, cmd] ++ args)
+runGit (GitRepo path) cmd args input = do
+    logMsg $ "Git("++path++"): "++cmd++" "++unwords args
+    readProcess "git" (["-C", path, cmd] ++ args) input
 
 resolveRef :: GitRepo -> Ref -> IO SHA
 resolveRef repo ref =

@@ -4,6 +4,7 @@ import Control.Exception
 import Data.Monoid
 import Options.Applicative
 
+import Git (cwdRepo)
 import Hooks
 import PushMerge
 import Server
@@ -20,8 +21,8 @@ printError = handle printExc
     printExc :: SomeException -> IO ()
     printExc = print
 
-preReceiveMode = pure $ printError preReceive
-postReceiveMode = pure $ printError postReceive
+preReceiveMode = pure $ printError $ preReceive cwdRepo
+postReceiveMode = pure $ printError $ postReceive cwdRepo
 serverMode = pure runServer
 
 main :: IO ()

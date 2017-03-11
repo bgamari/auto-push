@@ -4,6 +4,7 @@
 module Server where
 
 import Control.Monad.IO.Class
+import Control.Monad.Catch
 import qualified Network.Wai.Handler.Warp
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Servant
@@ -18,19 +19,22 @@ serverPort = 8880
 
 type Api =
          "branch" :> Capture "branch" Ref
-                  :> ReqBody '[JSON] SHA
-                  :> Post '[JSON] (Either NewMergeRequestError MergeRequestId)
+                  :> ReqBody '[JSON] CommitRange
+                  :> Post '[JSON] MergeRequestId
      :<|> "merge" :> Get '[JSON] [MergeRequestId]
      :<|> "merge" :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
 
 server :: PushMerge.Server -> Servant.Server Api
 server server = newMergeRequest :<|> listMergeRequests :<|> cancelMergeRequest
   where
-    newMergeRequest ref sha = liftIO $ PushMerge.newMergeRequest server ref sha
+    newMergeRequest ref sha =
+        catchBranchNotManaged $ liftIO $ PushMerge.newMergeRequest server ref sha
     listMergeRequests = return []
     cancelMergeRequest = undefined
 
-reqNewMergeRequest :: Ref -> SHA -> ClientM (Either NewMergeRequestError MergeRequestId)
+    catchBranchNotManaged = handle (\BranchNotManagedException -> throwM err403)
+
+reqNewMergeRequest :: Ref -> CommitRange -> ClientM MergeRequestId
 reqListMergeRequests :: ClientM [MergeRequestId]
 reqCancelMergeRequest :: MergeRequestId -> ClientM ()
 reqNewMergeRequest
@@ -56,4 +60,3 @@ runServer = do
     let app :: Application
         app = serve api (server s)
     Network.Wai.Handler.Warp.run serverPort app
-

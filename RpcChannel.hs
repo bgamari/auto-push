@@ -12,8 +12,8 @@ data SomeRequest f where
 
 data RpcChan f = RpcChan (TQueue (SomeRequest f))
 
-newRpcChan :: IO (RpcChan f)
-newRpcChan = RpcChan <$> newTQueueIO
+newRpcChan :: STM (RpcChan f)
+newRpcChan = RpcChan <$> newTQueue
 
 handleRpc :: (MonadCatch m, MonadIO m)
           => RpcChan f -> (forall a. f a -> m a) -> m ()
@@ -27,9 +27,9 @@ matchRpc (RpcChan q) run = do
     SomeRequest req reply <- readTQueue q
     return $ run (putTMVar reply) req
 
-sendRpc :: RpcChan f -> f a -> STM a
+sendRpc :: RpcChan f -> f a -> IO a
 sendRpc (RpcChan q) req = do
-    reply <- newEmptyTMVar
-    writeTQueue q (SomeRequest req reply)
-    res <- takeTMVar reply
+    reply <- newEmptyTMVarIO
+    atomically $ writeTQueue q (SomeRequest req reply)
+    res <- atomically $ takeTMVar reply
     either throwM return res

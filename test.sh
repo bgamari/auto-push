@@ -15,7 +15,7 @@ $bin post-receive
 EOF
 chmod ugo+rx test.git/hooks/{pre-receive,post-receive}
 
-( cd test.git; $bin server )&
+( cd test.git; $bin server +RTS -N4 -xc )&
 
 mkdir -p test
 pushd test

@@ -66,7 +66,16 @@
 -- on top of @branch_head@. Likewise we would do the same for any of its
 -- dependents.
 --
-module PushMerge where
+module PushMerge
+    ( startServer
+    , Server
+    , newMergeRequest
+    , NewMergeRequestError(..)
+    , isMergeBranch
+      -- * Types
+    , MergeRequestId
+    , BranchNotManagedException(..)
+    ) where
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -80,24 +89,23 @@ import Control.Monad.Catch
 import Data.Maybe
 import Data.Semigroup
 import Data.Foldable (toList, asum)
-import GHC.Generics
 import System.Process
+import System.Directory
+import System.IO.Temp
+import GHC.Generics
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Map as M
-import qualified Data.Sequence as Seq
 
-import Servant (ToHttpApiData, FromHttpApiData)
-import qualified Data.Aeson as Aeson
 import Data.Aeson (FromJSON, ToJSON)
+import qualified Data.Aeson as Aeson
 import Control.Lens
 
 import RpcChannel
+import PushMerge.Types
 import Git
 import Utils
-
-theRepo = GitRepo "."
 
 runBranch :: ManagedBranch -> IO ()
 runBranch managedBranch = do
@@ -114,18 +122,13 @@ startServer serverRepo = do
     serverBranches <- newTVarIO mempty
     serverNextRequestId <- newTVarIO (MergeRequestId 0)
     let serverStartBuild _ _ = return BuildSucceeded -- TODO
+
+    temp <- getTemporaryDirectory
+    workingDirs <- replicateM 3 $ do
+        dir <- createTempDirectory temp "repo"
+        Git.clone serverRepo dir
+    serverWorkingDirPool <- newTVarIO workingDirs
     return $ Server {..}
-
-data NewMergeRequestError = BranchNotManaged
-                          | CommitHasNoMergeBase
-                          deriving (Show, Generic)
-                          deriving anyclass (FromJSON, ToJSON)
-
-newMergeRequest :: Server -> Ref -> SHA
-                -> IO (Either NewMergeRequestError MergeRequestId)
-newMergeRequest server ref headSha
-  | Just managed <- isManagedBranch ref = undefined -- TODO
-  | otherwise = return $ Left BranchNotManaged
 
 freshRequestId :: Server -> IO MergeRequestId
 freshRequestId server = atomically $ do
@@ -134,89 +137,25 @@ freshRequestId server = atomically $ do
     return i
 
 withWorkingDir :: Server -> (GitRepo -> IO a) -> IO a
-withWorkingDir = undefined -- TODO
+withWorkingDir server action = do
+    bracket acquire release action
+  where
+    pool = serverWorkingDirPool server
+    acquire = atomically $ do
+        xs <- readTVar pool
+        case xs of
+          [] -> retry
+          x:xs' -> writeTVar pool xs' >> return x
+    release dir = atomically $ modifyTVar pool (dir:)
 
-data Server = Server { serverBranches      :: TVar (M.Map ManagedBranch (TQueue SomeBranchRequest))
-                     , serverNextRequestId :: TVar MergeRequestId
-                     , serverStartBuild    :: ManagedBranch -> BuildAction
-                     , serverRepo          :: GitRepo
+
+data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest))
+                     , serverNextRequestId  :: TVar MergeRequestId
+                     , serverStartBuild     :: ManagedBranch -> BuildAction
+                     , serverRepo           :: GitRepo
+                     , serverWorkingDirPool :: TVar [GitRepo]
                      }
 
--- | A branch which we are responsible for merging into.
-newtype ManagedBranch = ManagedBranch { getManagedBranch :: Ref }
-                      deriving (Show, Eq, Ord, Generic)
-                      deriving newtype (FromJSON, ToJSON, FromHttpApiData, ToHttpApiData)
-
-newtype MergeRequestId = MergeRequestId Int
-                       deriving (Eq, Ord, Show, Generic)
-                       deriving newtype (FromJSON, ToJSON, FromHttpApiData, ToHttpApiData)
-
--- | A request to merge some commits.
-data MergeRequestState
-    = MergeRequestState { _mergeRequestId   :: MergeRequestId
-                        , _mergeOrigCommits :: CommitRange
-                        , _mergeStatus      :: RequestStatus (Async BuildResult)
-                        , _mergeBranch      :: ManagedBranch
-                        }
-
--- | The status of a merge request.
-data RequestStatus a
-    = PendingBuild                     -- ^ needs a build to be started
-    | FailedToRebase SHA               -- ^ failed to rebase onto the given base commit
-    | Building CommitRange a           -- ^ building the given rebased commits
-    | FailedToBuild CommitRange String -- ^ failed to build the given rebased commits
-    | Succeeded CommitRange            -- ^ the given rebased commits were built sucessfully
-    deriving (Show, Functor)
-
-data BuildResult = BuildSucceeded
-                 | BuildFailed String
-                 deriving (Generic)
-                 deriving anyclass (FromJSON, ToJSON)
-
--- | Test-build a SHA, returning 'Just' on error or 'Nothing' on success.
-type BuildAction = SHA -> IO BuildResult
-
-
-
-
-
-data SomeBranchRequest where
-    SomeBranchRequest :: BranchRequest a -> SomeBranchRequest
-
-data BranchRequest a where
-    NewMergeRequest :: { newMergeReqCommits :: CommitRange
-                       , newMergeReqBranch  :: ManagedBranch
-                       }
-                    -> BranchRequest MergeRequestId
-    CancelMergeRequest :: { cancelMergeReqId :: MergeRequestId }
-                       -> BranchRequest ()
-    GetBranchStatus :: BranchRequest BranchStatus
-
-data BranchStatus = BranchStatus { branchCurrentHead :: SHA
-                                 , branchMergeRequests :: [(MergeRequestId, RequestStatus ())]
-                                 }
-
---------------------------------------------------
--- Queue
---------------------------------------------------
-
-newtype Queue a = Queue (Seq.Seq a)
-                deriving (Show, Functor, Foldable)
-
-popQueue :: Queue a -> Maybe (a, Queue a)
-popQueue (Queue Seq.Empty)      = Nothing
-popQueue (Queue (x Seq.:<| xs)) = Just (x, Queue xs)
-
-appendQueue :: Queue a -> a -> Queue a
-appendQueue (Queue xs) x = Queue $ xs Seq.:|> x
-
-successors :: (Eq a) => a -> Queue a -> Maybe [a]
-successors x (Queue xs) = go xs
-  where
-    go (y Seq.:<| ys)
-      | x == y    = Just $ toList ys
-      | otherwise = go ys
-    go Seq.Empty  = Nothing
 
 --------------------------------------------------
 -- Branch worker
@@ -230,17 +169,24 @@ data WorkerState = WorkerState { _mergeQueue    :: Queue MergeRequestId
                                , _branchHead    :: SHA
                                }
 
-makeLenses ''MergeRequestState
 makeLenses ''WorkerState
+
+stateInvariant :: WorkerState -> Bool
+stateInvariant state =
+    -- All requests in mergeQueue are in mergeRequests
+    all (`M.member` view mergeRequests state) (state ^. mergeQueue)
+    -- branchHead == head of last MergeRequest
 
 toBuildRef :: MergeRequestId -> Ref
 toBuildRef (MergeRequestId n) = Ref $ "refs/heads/to-build/" <> T.pack (show n)
 
 branchWorker :: Server -> ManagedBranch -> RpcChan BranchRequest -> IO ()
 branchWorker server branch eventQueue = do
-    let head = undefined -- TODO
+    putStrLn $ "worker for "++show branch
+    head <- resolveRef (serverRepo server) (getManagedBranch branch)
+    putStrLn $ "HEAD is " ++ show head
     let s0 :: WorkerState
-        s0 = WorkerState { _mergeQueue    = Queue Seq.Empty
+        s0 = WorkerState { _mergeQueue    = emptyQueue
                          , _mergeRequests = mempty
                          , _failedMerges  = []
                          , _branchHead    = head
@@ -249,9 +195,12 @@ branchWorker server branch eventQueue = do
   where
     go :: WorkerM ()
     go = forever $ do
+        logMsg "worker go"
         join $ uses mergeQueue $ mapM_ startPendingBuild
         _ <- runMaybeT mergeGoodRequests
+        logMsg "worker waiting"
         doEvent <- join $ uses id $ liftIO . atomically . getEvent
+        logMsg "have event"
         doEvent
 
     startPendingBuild :: MergeRequestId -> WorkerM ()
@@ -259,6 +208,7 @@ branchWorker server branch eventQueue = do
         status <- use $ mr reqId . mergeStatus
         case status of
           PendingBuild -> do
+              logMsg $ "starting build for "++show reqId
               brHead <- use branchHead
               reqCommits <- use $ mr reqId . mergeOrigCommits
               commits <- liftIO $ withWorkingDir server $ \repo -> do
@@ -277,6 +227,7 @@ branchWorker server branch eventQueue = do
         queue <- lift $ use mergeQueue
         (reqId, rest) <- MaybeT $ pure $ popQueue queue
         Succeeded (CommitRange baseSha headSha) <- lift $ use $ mr reqId . mergeStatus
+        lift $ logMsg $ "Trying to merge "++show reqId
         let tryAgain :: SomeException -> MaybeT WorkerM ()
             tryAgain _ = do
                 lift $ mr reqId . mergeStatus .= PendingBuild
@@ -311,11 +262,12 @@ branchWorker server branch eventQueue = do
     handleBranchRequest (NewMergeRequest {..}) = do
         reqId <- liftIO $ freshRequestId server
         mergeQueue %= flip appendQueue reqId
-        mr reqId .= MergeRequestState { _mergeRequestId   = reqId
-                                      , _mergeOrigCommits = newMergeReqCommits
-                                      , _mergeStatus      = PendingBuild
-                                      , _mergeBranch      = branch
-                                      }
+        mergeRequests . at reqId ?=
+            MergeRequestState { _mergeRequestId   = reqId
+                              , _mergeOrigCommits = newMergeReqCommits
+                              , _mergeStatus      = PendingBuild
+                              , _mergeBranch      = branch
+                              }
         return reqId
     handleBranchRequest (CancelMergeRequest {..}) = cancelBuild cancelMergeReqId
     handleBranchRequest (GetBranchStatus{}) =
@@ -340,6 +292,41 @@ branchWorker server branch eventQueue = do
           _                  -> return ()
         mr reqId . mergeStatus .= PendingBuild
 
-stateInvariant :: WorkerState -> Bool
-stateInvariant state = True -- TODO
-    -- branchHead == head of last MergeRequest
+    logMsg :: String -> WorkerM ()
+    logMsg = liftIO . putStrLn
+
+--------------------------------------------------
+-- Wrappers
+--------------------------------------------------
+data BranchNotManagedException = BranchNotManagedException
+                               deriving (Exception, Show)
+
+data NewMergeRequestError = CommitHasNoMergeBase
+                          deriving (Show, Generic, Exception)
+                          deriving anyclass (FromJSON, ToJSON)
+
+newMergeRequest :: Server -> Ref -> CommitRange
+                -> IO MergeRequestId
+newMergeRequest server ref commits =
+    branchRequest server ref
+    $ NewMergeRequest { newMergeReqCommits = commits }
+
+branchRequest :: Server -> Ref -> BranchRequest a -> IO a
+branchRequest server ref req
+  | Just managed <- isManagedBranch ref = do
+        putStrLn "Request"
+        r <- atomically $ do
+            branches <- readTVar $ serverBranches server
+            case M.lookup managed branches of
+              Just chan -> return $ Right chan
+              Nothing -> do chan <- newRpcChan
+                            writeTVar (serverBranches server) $ M.insert managed chan branches
+                            return $ Left chan
+        case r of
+          Right chan -> sendRpc chan req
+          Left chan -> do
+              putStrLn $ "Starting worker for "++show ref
+              worker <- async $ branchWorker server managed chan
+              link worker
+              branchRequest server ref req
+  | otherwise = throwM $ BranchNotManagedException

@@ -2,4 +2,8 @@ packages: .
           /opt/exp/haskell-packages/{generics-sop,hashable,servant,comonad,memory,parallel,lens}
           /opt/exp/haskell-packages/servant/{servant,servant-server}
 
+package auto-push
+    optimization: False
+    profiling-detail: toplevel-functions
+
 allow-newer: base, template-haskell, time, directory, semigroupoids, containers, deepseq
