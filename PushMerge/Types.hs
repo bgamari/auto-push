@@ -99,7 +99,7 @@ type BuildAction = SHA -> IO BuildResult
 
 
 data BranchRequest a where
-    NewMergeRequest :: { newMergeReqCommits :: CommitRange }
+    NewMergeRequest :: { newMergeReqHead :: SHA }
                     -> BranchRequest MergeRequestId
     CancelMergeRequest :: { cancelMergeReqId :: MergeRequestId }
                        -> BranchRequest ()

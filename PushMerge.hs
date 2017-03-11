@@ -109,9 +109,8 @@ import PushMerge.Types
 import Git
 import Utils
 
-runBranch :: ManagedBranch -> IO ()
-runBranch managedBranch = do
-    return ()
+originRemote :: Remote
+originRemote = Remote "origin"
 
 startServer :: GitRepo -> IO Server
 startServer serverRepo = do
@@ -132,19 +131,19 @@ freshRequestId server = atomically $ do
     writeTVar (serverNextRequestId server) $ case i of MergeRequestId i -> MergeRequestId (i+1)
     return i
 
-withWorkingDir :: Server -> (GitRepo -> IO a) -> IO a
+withWorkingDir :: (MonadIO m, MonadMask m) => Server -> (GitRepo -> m a) -> m a
 withWorkingDir server action = do
     bracket acquire release $ \repo -> do
-        Git.remoteUpdate repo (Remote "origin")
+        liftIO $ Git.remoteUpdate repo originRemote
         action repo
   where
     pool = serverWorkingDirPool server
-    acquire = atomically $ do
+    acquire = liftIO $ atomically $ do
         xs <- readTVar pool
         case xs of
           [] -> retry
           x:xs' -> writeTVar pool xs' >> return x
-    release dir = atomically $ modifyTVar pool (dir:)
+    release dir = liftIO $ atomically $ modifyTVar pool (dir:)
 
 
 data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest))
@@ -153,9 +152,6 @@ data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcCha
                      , serverRepo           :: GitRepo
                      , serverWorkingDirPool :: TVar [GitRepo]
                      }
-
-isManagedBranch :: Ref -> Maybe ManagedBranch
-isManagedBranch (Ref t) = ManagedBranch <$> T.stripPrefix "refs/heads/" t
 
 --------------------------------------------------
 -- Branch worker
@@ -177,8 +173,13 @@ stateInvariant state =
     all (`M.member` view mergeRequests state) (state ^. mergeQueue)
     -- branchHead == head of last MergeRequest
 
+-- | The ref which points to the original commits of a merge request.
+toOrigRef :: MergeRequestId -> Ref
+toOrigRef (MergeRequestId n) = Ref $ "refs/heads/auto-push/orig/" <> T.pack (show n)
+
+-- | The ref which points to the most recent rebased commits of a merge request.
 toBuildRef :: MergeRequestId -> Ref
-toBuildRef (MergeRequestId n) = Ref $ "refs/heads/to-build/" <> T.pack (show n)
+toBuildRef (MergeRequestId n) = Ref $ "refs/heads/auto-push/to-build/" <> T.pack (show n)
 
 branchWorker :: Server -> ManagedBranch -> RpcChan BranchRequest -> IO ()
 branchWorker server branch eventQueue = do
@@ -191,35 +192,47 @@ branchWorker server branch eventQueue = do
                          , _failedMerges  = []
                          , _branchHead    = head
                          }
-    evalStateT go s0
+    evalStateT (forever go) s0
   where
     go :: WorkerM ()
-    go = forever $ do
+    go = do
         logMsg "worker go"
-        join $ uses mergeQueue $ mapM_ startPendingBuild
+        join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
         _ <- runMaybeT mergeGoodRequests
         logMsg "worker waiting"
         doEvent <- join $ uses id $ liftIO . atomically . getEvent
         logMsg "have event"
         doEvent
 
-    startPendingBuild :: MergeRequestId -> WorkerM ()
+    startPendingBuild :: MergeRequestId -> MaybeT WorkerM ()
     startPendingBuild reqId = do
-        status <- use $ mrStatus reqId
+        status <- lift $ use $ mrStatus reqId
         case status of
           PendingBuild -> do
-              logMsg $ "starting build for "++show reqId
-              brHead <- use branchHead
-              reqCommits <- use $ mr reqId . mergeReqOrigCommits
-              commits <- liftIO $ withWorkingDir server $ \repo -> do
-                  commits <- Git.rebase repo reqCommits brHead -- TODO exception
+              lift $ logMsg $ "starting build for "++show reqId
+              brHead <- lift $ use branchHead
+              reqCommits <- lift $ use $ mr reqId . mergeReqOrigCommits
+              commits <- MaybeT $ withWorkingDir server $ \repo -> runMaybeT $ do
+                  -- Fetch and rebase branch
+                  liftIO $ Git.fetch repo originRemote [toOrigRef reqId]
+                  lift $ logMsg $ "Fetched"
+                  let handleRebaseFail e@GitException{} = do
+                          logMsg $ "Failed to rebase "++show reqId++": "++show e
+                          mrStatus reqId .= FailedToRebase brHead
+                          return Nothing
+                  commits <- MaybeT $ handle handleRebaseFail
+                             $ fmap Just $ liftIO $ Git.rebase repo reqCommits brHead
                   let head' = headCommit commits
-                  Git.push repo (Remote "origin") (CommitSha head') (toBuildRef reqId)
+
+                  -- Push rebased commits
+                  liftIO $ Git.push repo originRemote (CommitSha head') (toBuildRef reqId)
+                  lift $ logMsg $ "Rebased "++show reqId++": "++show commits
                   return commits
 
-              branchHead .= headCommit commits
+              lift $ branchHead .= headCommit commits
               builder <- liftIO $ async $ serverStartBuild server branch (headCommit commits)
-              mrStatus reqId .= Building commits builder
+              lift $ mrStatus reqId .= Building commits builder
+              lift $ logMsg $ show reqId++" is now building"
           _ -> return ()
 
     mergeGoodRequests :: MaybeT WorkerM ()
@@ -236,6 +249,7 @@ branchWorker server branch eventQueue = do
             liftIO $ updateRefs (serverRepo server)
                                 [ UpdateRef (upstreamBranch branch) headSha (Just baseSha) ]
         lift $ mergeQueue .= rest
+        lift $ logMsg $ "Successfully merged "++show reqId
         mergeGoodRequests
 
     getEvent :: WorkerState -> STM (WorkerM ())
@@ -263,11 +277,16 @@ branchWorker server branch eventQueue = do
     -- Handling events
     handleBranchRequest :: BranchRequest a -> WorkerM a
     handleBranchRequest (NewMergeRequest {..}) = do
+        baseCommit <- liftIO $ Git.mergeBase (serverRepo server)
+                                             (CommitRef $ upstreamBranch branch)
+                                             (CommitSha newMergeReqHead)
         reqId <- liftIO $ freshRequestId server
+        liftIO $ Git.updateRefs (serverRepo server)
+                                [ UpdateRef (toOrigRef reqId) newMergeReqHead Nothing ]
         mergeQueue %= flip appendQueue reqId
         mergeRequests . at reqId ?=
             MergeRequestState { _mergeReqId          = reqId
-                              , _mergeReqOrigCommits = newMergeReqCommits
+                              , _mergeReqOrigCommits = CommitRange baseCommit newMergeReqHead
                               , _mergeReqStatus      = PendingBuild
                               , _mergeReqBranch      = branch
                               }
@@ -296,7 +315,7 @@ branchWorker server branch eventQueue = do
         mrStatus reqId .= PendingBuild
 
     logMsg :: String -> WorkerM ()
-    logMsg = liftIO . putStrLn . ("Worker: "++)
+    logMsg = liftIO . Utils.logMsg . ("Worker: "++)
 
 --------------------------------------------------
 -- Wrappers
@@ -306,7 +325,7 @@ data BranchNotManagedException = BranchNotManagedException
 
 branchRequest :: Server -> Ref -> BranchRequest a -> IO a
 branchRequest server ref req
-  | Just managed <- isManagedBranch ref = do
+  | Just managed <- isMergeBranch ref = do
         putStrLn "Request"
         r <- atomically $ do
             branches <- readTVar $ serverBranches server
@@ -328,11 +347,11 @@ data NewMergeRequestError = CommitHasNoMergeBase
                           deriving (Show, Generic, Exception)
                           deriving anyclass (FromJSON, ToJSON)
 
-newMergeRequest :: Server -> Ref -> CommitRange
+newMergeRequest :: Server -> Ref -> SHA
                 -> IO MergeRequestId
-newMergeRequest server ref commits =
+newMergeRequest server ref headCommit =
     branchRequest server ref
-    $ NewMergeRequest { newMergeReqCommits = commits }
+    $ NewMergeRequest { newMergeReqHead = headCommit }
 
 cancelMergeRequest :: Server -> MergeRequestId -> IO ()
 cancelMergeRequest server reqId = do

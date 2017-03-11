@@ -44,11 +44,14 @@ postReceive repo = do
     updateRefs repo updates'
 
     let postMergeRequest :: (SHA, SHA, Ref) -> ClientM ()
-        postMergeRequest (old, new, ref) = do
-            mergeReqId <- reqNewMergeRequest ref (CommitRange old new)
+        postMergeRequest (old, new, ref)
+          | Just _ <- isMergeBranch ref = do
+            mergeReqId <- reqNewMergeRequest ref new
             case mergeReqId of
               reqId -> liftIO $ putStrLn $ "Reply: "++show reqId
               --Left BranchNotManaged -> liftIO $ putStrLn $ "Branch "++show ref++" is not managed"
               --Left CommitHasNoMergeBase -> liftIO $ putStrLn $ "Commit "++show ref++" has no merge base with branch "++show ref
+          | otherwise = return ()
+
     request $ mapM_ postMergeRequest updates
     return ()

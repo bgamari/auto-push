@@ -19,7 +19,7 @@ serverPort = 8880
 
 type Api =
          "branch" :> Capture "branch" Ref
-                  :> ReqBody '[JSON] CommitRange
+                  :> ReqBody '[JSON] SHA
                   :> Post '[JSON] MergeRequestId
      :<|> "merge" :> Get '[JSON] [MergeRequestId]
      :<|> "merge" :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
@@ -35,7 +35,7 @@ server server = newMergeRequest :<|> listMergeRequests :<|> cancelMergeRequest
 
     catchBranchNotManaged = handle (\BranchNotManagedException -> throwM err403)
 
-reqNewMergeRequest :: Ref -> CommitRange -> ClientM MergeRequestId
+reqNewMergeRequest :: Ref -> SHA -> ClientM MergeRequestId
 reqListMergeRequests :: ClientM [MergeRequestId]
 reqCancelMergeRequest :: MergeRequestId -> ClientM ()
 reqNewMergeRequest

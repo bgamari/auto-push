@@ -1,4 +1,6 @@
 module Utils where
 
+import System.IO
+
 logMsg :: String -> IO ()
-logMsg = putStrLn
+logMsg msg = putStrLn msg >> hFlush stdout
