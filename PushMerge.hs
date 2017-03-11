@@ -69,12 +69,14 @@
 module PushMerge
     ( startServer
     , Server
-    , newMergeRequest
-    , NewMergeRequestError(..)
-    , isMergeBranch
       -- * Types
     , MergeRequestId
+      -- * Requests
     , BranchNotManagedException(..)
+    , newMergeRequest
+    , NewMergeRequestError(..)
+    , cancelMergeRequest
+    , isMergeBranch
     ) where
 
 import Control.Monad
@@ -111,12 +113,6 @@ runBranch :: ManagedBranch -> IO ()
 runBranch managedBranch = do
     return ()
 
-isManagedBranch :: Ref -> Maybe ManagedBranch
-isManagedBranch = Just . ManagedBranch
-
-isMergeBranch :: Ref -> Maybe Ref
-isMergeBranch (Ref ref) = Ref <$> T.stripPrefix "refs/heads/merge/" ref
-
 startServer :: GitRepo -> IO Server
 startServer serverRepo = do
     serverBranches <- newTVarIO mempty
@@ -138,7 +134,9 @@ freshRequestId server = atomically $ do
 
 withWorkingDir :: Server -> (GitRepo -> IO a) -> IO a
 withWorkingDir server action = do
-    bracket acquire release action
+    bracket acquire release $ \repo -> do
+        Git.remoteUpdate repo (Remote "origin")
+        action repo
   where
     pool = serverWorkingDirPool server
     acquire = atomically $ do
@@ -156,6 +154,8 @@ data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcCha
                      , serverWorkingDirPool :: TVar [GitRepo]
                      }
 
+isManagedBranch :: Ref -> Maybe ManagedBranch
+isManagedBranch (Ref t) = ManagedBranch <$> T.stripPrefix "refs/heads/" t
 
 --------------------------------------------------
 -- Branch worker
@@ -183,7 +183,7 @@ toBuildRef (MergeRequestId n) = Ref $ "refs/heads/to-build/" <> T.pack (show n)
 branchWorker :: Server -> ManagedBranch -> RpcChan BranchRequest -> IO ()
 branchWorker server branch eventQueue = do
     putStrLn $ "worker for "++show branch
-    head <- resolveRef (serverRepo server) (getManagedBranch branch)
+    head <- resolveRef (serverRepo server) (upstreamBranch branch)
     putStrLn $ "HEAD is " ++ show head
     let s0 :: WorkerState
         s0 = WorkerState { _mergeQueue    = emptyQueue
@@ -205,36 +205,36 @@ branchWorker server branch eventQueue = do
 
     startPendingBuild :: MergeRequestId -> WorkerM ()
     startPendingBuild reqId = do
-        status <- use $ mr reqId . mergeStatus
+        status <- use $ mrStatus reqId
         case status of
           PendingBuild -> do
               logMsg $ "starting build for "++show reqId
               brHead <- use branchHead
-              reqCommits <- use $ mr reqId . mergeOrigCommits
+              reqCommits <- use $ mr reqId . mergeReqOrigCommits
               commits <- liftIO $ withWorkingDir server $ \repo -> do
-                  commits <- rebase repo reqCommits brHead -- TODO exception
+                  commits <- Git.rebase repo reqCommits brHead -- TODO exception
                   let head' = headCommit commits
                   Git.push repo (Remote "origin") (CommitSha head') (toBuildRef reqId)
                   return commits
 
               branchHead .= headCommit commits
               builder <- liftIO $ async $ serverStartBuild server branch (headCommit commits)
-              mr reqId . mergeStatus .= Building commits builder
+              mrStatus reqId .= Building commits builder
           _ -> return ()
 
     mergeGoodRequests :: MaybeT WorkerM ()
     mergeGoodRequests = do
         queue <- lift $ use mergeQueue
         (reqId, rest) <- MaybeT $ pure $ popQueue queue
-        Succeeded (CommitRange baseSha headSha) <- lift $ use $ mr reqId . mergeStatus
+        Succeeded (CommitRange baseSha headSha) <- lift $ use $ mrStatus reqId
         lift $ logMsg $ "Trying to merge "++show reqId
         let tryAgain :: SomeException -> MaybeT WorkerM ()
             tryAgain _ = do
-                lift $ mr reqId . mergeStatus .= PendingBuild
+                lift $ mrStatus reqId .= PendingBuild
                 mzero
         handle tryAgain $
             liftIO $ updateRefs (serverRepo server)
-                                [ UpdateRef (getManagedBranch branch) headSha (Just baseSha) ]
+                                [ UpdateRef (upstreamBranch branch) headSha (Just baseSha) ]
         lift $ mergeQueue .= rest
         mergeGoodRequests
 
@@ -249,7 +249,7 @@ branchWorker server branch eventQueue = do
             [ handleBuildFinished reqId rebasedCommits <$> waitSTM resultVar
             | reqId <- toList $ s ^. mergeQueue
             , let Just req = M.lookup reqId (_mergeRequests s)
-            , Building rebasedCommits resultVar <- pure $ req ^. mergeStatus
+            , Building rebasedCommits resultVar <- pure $ req ^. mergeReqStatus
             ]
       -- TODO: detect force push
       -- join $ uses mergeQueue $ mapM_ cancelBuild
@@ -257,16 +257,19 @@ branchWorker server branch eventQueue = do
     mr :: MergeRequestId -> Lens' WorkerState MergeRequestState
     mr i = mergeRequests . singular (ix i)
 
+    mrStatus :: MergeRequestId -> Lens' WorkerState (RequestStatus (Async BuildResult))
+    mrStatus i = mr i . mergeReqStatus
+
     -- Handling events
     handleBranchRequest :: BranchRequest a -> WorkerM a
     handleBranchRequest (NewMergeRequest {..}) = do
         reqId <- liftIO $ freshRequestId server
         mergeQueue %= flip appendQueue reqId
         mergeRequests . at reqId ?=
-            MergeRequestState { _mergeRequestId   = reqId
-                              , _mergeOrigCommits = newMergeReqCommits
-                              , _mergeStatus      = PendingBuild
-                              , _mergeBranch      = branch
+            MergeRequestState { _mergeReqId          = reqId
+                              , _mergeReqOrigCommits = newMergeReqCommits
+                              , _mergeReqStatus      = PendingBuild
+                              , _mergeReqBranch      = branch
                               }
         return reqId
     handleBranchRequest (CancelMergeRequest {..}) = cancelBuild cancelMergeReqId
@@ -278,38 +281,28 @@ branchWorker server branch eventQueue = do
         req <- use $ mr reqId
         Just succs <- uses mergeQueue $ successors reqId
         mapM_ cancelBuild succs
-        mr reqId . mergeStatus .= FailedToBuild rebasedCommits msg
+        mrStatus reqId .= FailedToBuild rebasedCommits msg
         failedMerges %= (reqId :)
     handleBuildFinished reqId rebasedCommits BuildSucceeded = do
-        mr reqId . mergeStatus .= Succeeded rebasedCommits
+        mrStatus reqId .= Succeeded rebasedCommits
 
     -- Cancel any builds associated with a merge request and mark it as pending
     cancelBuild :: MergeRequestId -> WorkerM ()
     cancelBuild reqId = do
         req <- use $ mr reqId
-        case req ^. mergeStatus of
+        case req ^. mergeReqStatus of
           Building _ builder -> liftIO $ cancel builder
           _                  -> return ()
-        mr reqId . mergeStatus .= PendingBuild
+        mrStatus reqId .= PendingBuild
 
     logMsg :: String -> WorkerM ()
-    logMsg = liftIO . putStrLn
+    logMsg = liftIO . putStrLn . ("Worker: "++)
 
 --------------------------------------------------
 -- Wrappers
 --------------------------------------------------
 data BranchNotManagedException = BranchNotManagedException
                                deriving (Exception, Show)
-
-data NewMergeRequestError = CommitHasNoMergeBase
-                          deriving (Show, Generic, Exception)
-                          deriving anyclass (FromJSON, ToJSON)
-
-newMergeRequest :: Server -> Ref -> CommitRange
-                -> IO MergeRequestId
-newMergeRequest server ref commits =
-    branchRequest server ref
-    $ NewMergeRequest { newMergeReqCommits = commits }
 
 branchRequest :: Server -> Ref -> BranchRequest a -> IO a
 branchRequest server ref req
@@ -330,3 +323,18 @@ branchRequest server ref req
               link worker
               branchRequest server ref req
   | otherwise = throwM $ BranchNotManagedException
+
+data NewMergeRequestError = CommitHasNoMergeBase
+                          deriving (Show, Generic, Exception)
+                          deriving anyclass (FromJSON, ToJSON)
+
+newMergeRequest :: Server -> Ref -> CommitRange
+                -> IO MergeRequestId
+newMergeRequest server ref commits =
+    branchRequest server ref
+    $ NewMergeRequest { newMergeReqCommits = commits }
+
+cancelMergeRequest :: Server -> MergeRequestId -> IO ()
+cancelMergeRequest server reqId = do
+    undefined
+    --branchRequest server ref

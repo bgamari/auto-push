@@ -19,8 +19,10 @@ module Git
     , checkout
     , updateRefs
     , UpdateRefAction(..)
+      -- * Remotes
     , Remote(..)
     , push
+    , remoteUpdate
     ) where
 
 import Control.Monad
@@ -51,7 +53,7 @@ logMsg msg = putStrLn msg
 
 runGit :: GitRepo -> String -> [String] -> String -> IO String
 runGit (GitRepo path) cmd args input = do
-    logMsg $ "Git("++path++"): "++cmd++" "++unwords args
+    logMsg $ "Git("++path++"): "++cmd++" "++unwords args++": "++input
     readProcess "git" (["-C", path, cmd] ++ args) input
 
 resolveRef :: GitRepo -> Ref -> IO SHA
@@ -143,3 +145,7 @@ clone (GitRepo src) dest = do
     void $ readProcess "git" ["clone", src, dest] ""
     return dest'
   where dest' = GitRepo dest
+
+remoteUpdate :: GitRepo -> Remote -> IO ()
+remoteUpdate repo (Remote remote) =
+    void $ runGit repo "remote" [ "update" ] ""

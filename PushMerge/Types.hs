@@ -11,9 +11,11 @@
 module PushMerge.Types where
 
 import GHC.Generics
+import Data.Semigroup
 
 import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
+import qualified Data.Text as T
 import Control.Concurrent.Async
 import Control.Lens
 import Data.Aeson (FromJSON, ToJSON)
@@ -49,9 +51,22 @@ successors x (Queue xs) = go xs
 
 
 -- | A branch which we are responsible for merging into.
-newtype ManagedBranch = ManagedBranch { getManagedBranch :: Ref }
+newtype ManagedBranch = ManagedBranch { getManagedBranchName :: T.Text }
                       deriving (Show, Eq, Ord, Generic)
                       deriving newtype (FromJSON, ToJSON, FromHttpApiData, ToHttpApiData)
+
+isMergeBranch :: Ref -> Maybe ManagedBranch
+isMergeBranch (Ref ref) = ManagedBranch <$> T.stripPrefix "refs/heads/merge/" ref
+
+-- | The name of the branch which we pull merge requests from
+mergeBranch :: ManagedBranch -> Ref
+mergeBranch (ManagedBranch name) = Ref $ "refs/heads/merge/" <> name
+
+-- | The name of the branch which we are merging to
+upstreamBranch :: ManagedBranch -> Ref
+upstreamBranch (ManagedBranch name) = Ref $ "refs/heads/" <> name
+
+
 
 newtype MergeRequestId = MergeRequestId Int
                        deriving (Eq, Ord, Show, Generic)
@@ -59,10 +74,10 @@ newtype MergeRequestId = MergeRequestId Int
 
 -- | A request to merge some commits.
 data MergeRequestState
-    = MergeRequestState { _mergeRequestId   :: MergeRequestId
-                        , _mergeOrigCommits :: CommitRange
-                        , _mergeStatus      :: RequestStatus (Async BuildResult)
-                        , _mergeBranch      :: ManagedBranch
+    = MergeRequestState { _mergeReqId          :: MergeRequestId
+                        , _mergeReqOrigCommits :: CommitRange
+                        , _mergeReqStatus      :: RequestStatus (Async BuildResult)
+                        , _mergeReqBranch      :: ManagedBranch
                         }
 
 -- | The status of a merge request.

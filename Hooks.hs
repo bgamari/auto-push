@@ -27,7 +27,7 @@ readReceiveRefs = mapMaybe parse . T.lines <$> T.getContents
 preReceive :: GitRepo -> IO ()
 preReceive _ = do
     updates <- readReceiveRefs
-    logMsg $ show updates
+    logMsg $ "pre-recieve: "++show updates
     return ()
 
 postReceive :: GitRepo -> IO ()
@@ -47,7 +47,7 @@ postReceive repo = do
         postMergeRequest (old, new, ref) = do
             mergeReqId <- reqNewMergeRequest ref (CommitRange old new)
             case mergeReqId of
-              reqId -> liftIO $ putStrLn $ show reqId
+              reqId -> liftIO $ putStrLn $ "Reply: "++show reqId
               --Left BranchNotManaged -> liftIO $ putStrLn $ "Branch "++show ref++" is not managed"
               --Left CommitHasNoMergeBase -> liftIO $ putStrLn $ "Commit "++show ref++" has no merge base with branch "++show ref
     request $ mapM_ postMergeRequest updates

@@ -30,7 +30,8 @@ server server = newMergeRequest :<|> listMergeRequests :<|> cancelMergeRequest
     newMergeRequest ref sha =
         catchBranchNotManaged $ liftIO $ PushMerge.newMergeRequest server ref sha
     listMergeRequests = return []
-    cancelMergeRequest = undefined
+    cancelMergeRequest reqId =
+        liftIO $ PushMerge.cancelMergeRequest server reqId
 
     catchBranchNotManaged = handle (\BranchNotManagedException -> throwM err403)
 

@@ -15,25 +15,29 @@ $bin post-receive
 EOF
 chmod ugo+rx test.git/hooks/{pre-receive,post-receive}
 
-( cd test.git; $bin server +RTS -N4 -xc )&
+( cd test.git; $bin server +RTS -N4 )&
 
 mkdir -p test
 pushd test
 git init
 
+echo
 echo hello > hello
 git add hello
 git commit -m "initial commit"
 
+echo
 echo hello world >| hello
 git commit -a -m "another commit"
 git remote add origin ../test.git
 git push -u origin master
 
+echo
 echo gogogo >| hello
 git commit -a -m "yet another commit"
 git push -u origin master
 
+echo
 git remote update
 git show origin/master
 popd
