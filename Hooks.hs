@@ -45,7 +45,7 @@ postReceive = do
                        ]
     let postMergeRequest :: (SHA, SHA, Ref) -> ClientM ()
         postMergeRequest (old, new, ref) = do
-            mergeReqId <- newMergeRequest ref new
+            mergeReqId <- reqNewMergeRequest ref new
             case mergeReqId of
               Right reqId -> liftIO $ putStrLn $ show reqId
               Left BranchNotManaged -> liftIO $ putStrLn $ "Branch "++show ref++" is not managed"

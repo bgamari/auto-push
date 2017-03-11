@@ -21,7 +21,7 @@ executable auto-push
                        Hooks
                        Server
   other-extensions:    GeneralizedNewtypeDeriving
-  build-depends:       base >=4.9 && <4.10,
+  build-depends:       base >=4.8 && <4.11,
                        stm >= 2.4,
                        async >= 2.1,
                        process >=1.4 && <1.5,

@@ -20,15 +20,19 @@ type Api =
          "branch" :> Capture "branch" Ref
                   :> ReqBody '[JSON] SHA
                   :> Post '[JSON] (Either NewMergeRequestError MergeRequestId)
-     <|> "merge" :> Capture "merge" MergeRequestId :> Delete '[PlainText] ()
+     :<|> "merge" :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
 
 server :: PushMerge.Server -> Servant.Server Api
-server server = postBranch
+server server = postBranch :<|> merge
   where
     postBranch ref sha = liftIO $ PushMerge.newMergeRequest server ref sha
+    merge = undefined
 
-newMergeRequest :: Ref -> SHA -> ClientM (Either NewMergeRequestError MergeRequestId)
-newMergeRequest = client api
+reqNewMergeRequest :: Ref -> SHA -> ClientM (Either NewMergeRequestError MergeRequestId)
+reqMerge :: MergeRequestId -> ClientM ()
+reqNewMergeRequest
+    :<|> reqMerge
+    = client api
 
 request :: ClientM a -> IO a
 request action = do
