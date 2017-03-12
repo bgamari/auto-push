@@ -20,6 +20,7 @@ module Git
     , mergeBase
       -- * Manipulating repositories
     , rebase
+    , abortRebase
     , checkout
     , updateRefs
     , UpdateRefAction(..)
@@ -95,6 +96,9 @@ rebase repo commits@(CommitRange base head) onto
   | otherwise    = do
     runGit repo "rebase" ["--onto", showSHA onto, showSHA base, showSHA head] ""
     CommitRange onto <$> resolveRef repo (Ref "HEAD")
+
+abortRebase :: GitRepo -> IO ()
+abortRebase repo = void $ runGit repo "rebase" ["--abort"] ""
 
 checkout :: GitRepo
          -> Bool -- ^ force

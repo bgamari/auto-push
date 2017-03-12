@@ -228,6 +228,7 @@ branchWorker server branch eventQueue = do
                           return Nothing
                       handleRebaseFail e@GitException{} = do
                           logMsg $ "Failed to rebase "++show reqId++": "++show e
+                          liftIO $ Git.abortRebase repo
                           mrStatus reqId .= FailedToRebase brHead
                           return Nothing
                   commits <- MaybeT $ handle handleOther $ handle handleRebaseFail
