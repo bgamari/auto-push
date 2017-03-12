@@ -269,7 +269,10 @@ branchWorker server branch eventQueue = do
                       mzero
               handle tryAgain $
                   liftIO $ updateRefs (serverRepo server)
-                                      [ UpdateRef (branchRef $ upstreamBranch branch) headSha (Just baseSha) ]
+                                      [ UpdateRef (branchRef $ upstreamBranch branch) headSha (Just baseSha)
+                                      , DeleteRef (toBuildRef reqId) Nothing
+                                      , DeleteRef (toOrigRef reqId) Nothing
+                                      ]
               lift $ mergeQueue .= rest
               lift $ logMsg $ "Successfully merged "++show reqId
               lift $ mergeGoodRequests
