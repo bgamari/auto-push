@@ -279,8 +279,15 @@ branchWorker server branch eventQueue = do
 
           FailedToBuild _ err -> lift $ do
               logMsg $ "Giving up on "++show reqId++" due to build failure: "++err
-              invalidateSuccessorBuilds reqId
               mergeQueue .= rest
+              mapM_ cancelBuild rest
+              go
+
+          FailedToRebase _ -> lift $ do
+              logMsg $ "Giving up on "++show reqId++" due to rebase failure"
+              mergeQueue .= rest
+              mapM_ cancelBuild rest
+              go
 
           _ -> return ()
 
@@ -331,9 +338,11 @@ branchWorker server branch eventQueue = do
 
     handleBuildFinished :: MergeRequestId -> CommitRange -> BuildResult -> WorkerM ()
     handleBuildFinished reqId rebasedCommits (BuildFailed msg) = do
+        logMsg $ "Merge request "++show reqId++" failed to build"
         invalidateSuccessorBuilds reqId
         mrStatus reqId .= FailedToBuild rebasedCommits msg
     handleBuildFinished reqId rebasedCommits BuildSucceeded = do
+        logMsg $ "Merge request "++show reqId++" succeessfully built; ready for merge"
         mrStatus reqId .= Succeeded rebasedCommits
 
     invalidateSuccessorBuilds :: MergeRequestId -> WorkerM ()
