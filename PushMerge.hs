@@ -253,7 +253,8 @@ branchWorker server branch eventQueue = do
                   return commits
 
               lift $ branchHead .= headCommit commits
-              builder <- liftIO $ async $ serverStartBuild server branch (headCommit commits)
+              builder <- liftIO $ async $ handleAll (pure . BuildFailed . show)
+                         $ serverStartBuild server branch (headCommit commits)
               lift $ mrStatus reqId .= Building commits builder
               lift $ logMsg $ show reqId++" is now building"
           _ -> return ()
