@@ -40,7 +40,7 @@ commit_n=0
 do_commit() {
     echo "commit $commit_n" | tee $1
     git add $1
-    git commit -m "commit $commit_n"
+    git commit -m "commit $commit_n $fail"
     let commit_n=commit_n+1
 }
 
@@ -56,10 +56,16 @@ do_commit file1
 sleep 1
 
 echo
-git checkout -b branch2 master
-do_commit file2
+git checkout -b branch2 master; do_commit file2
+git checkout -b branch3 master; fail=ail do_commit file3
+git checkout -b branch4 master; do_commit file2
+git checkout -b branch5; do_commit file4
+
 git push origin branch1:merge/master
 git push origin branch2:merge/master
+git push origin branch3:merge/master
+git push origin branch4:merge/master
+git push origin branch5:merge/master
 sleep 3
 
 echo
@@ -68,6 +74,8 @@ echo "origin/master"
 git show origin/master
 echo "origin/merge/master"
 git show origin/merge/master
+
+curl -H'Accept: application/json' 'http://localhost:8880/branch/merge%2Fmaster' | jq .
 
 gitk origin/master origin/merge/master $(git branch -r | grep auto-push)
 popd
