@@ -92,6 +92,7 @@ import Control.Concurrent.STM
 import Control.Concurrent.Async
 import Control.Monad.Trans.State
 import Control.Monad.Catch
+import Data.List (nub)
 import Data.Maybe
 import Data.Semigroup
 import Data.Foldable (toList, asum, fold)
@@ -175,7 +176,11 @@ stateInvariant :: WorkerState -> Bool
 stateInvariant state =
     -- All requests in mergeQueue are in mergeRequests
     all (`M.member` view mergeRequests state) (state ^. mergeQueue)
-    -- branchHead == head of last MergeRequest
+    -- TODO: branchHead == head of last MergeRequest
+    -- Each request only occurs in queue once
+    && let queue = toList $ state ^. mergeQueue
+       in queue == nub queue
+
 
 -- | The ref which points to the original commits of a merge request.
 toOrigRef :: MergeRequestId -> Ref
