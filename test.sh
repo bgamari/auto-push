@@ -5,7 +5,7 @@ set -e
 nix build -f . auto-push
 bin=$(realpath result/bin)
 
-killall auto-push || true
+killall test-server || true
 rm -Rf test.git test
 mkdir -p test.git
 GIT_DIR=test.git git init --bare
@@ -62,7 +62,7 @@ echo
 git checkout -b branch2 master; fail= do_commit file2
 git checkout -b branch3 master; fail= do_commit file3
 git checkout -b branch4 master; fail= do_commit file2
-git checkout -b branch5; do_commit fail= file4
+git checkout -b branch5; fail=fail do_commit file4
 
 git push origin branch1:merge/master
 git push origin branch2:merge/master
