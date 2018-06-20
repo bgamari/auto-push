@@ -99,28 +99,23 @@ import Control.Concurrent.Async
 import Control.Monad.Trans.State
 import Control.Monad.Catch
 import Data.List (nub)
-import Data.Maybe
 import Data.Semigroup
-import Data.Foldable (toList, asum, fold)
-import System.Process
+import Data.Foldable (toList, asum)
 import System.Directory
 import System.IO.Temp
 import GHC.Generics
+import Prelude hiding (head)
 
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Map as M
 
 import Data.Aeson (FromJSON, ToJSON)
-import qualified Data.Aeson as Aeson
 import Control.Lens
 
 import RpcChannel
 import PushMerge.Types
 import Git
 import Utils
-
-import Control.Concurrent (threadDelay)
 
 originRemote :: Remote
 originRemote = Remote "origin"
@@ -149,7 +144,7 @@ startServer config = do
 freshRequestId :: Server -> IO MergeRequestId
 freshRequestId server = atomically $ do
     i <- readTVar $ serverNextRequestId server
-    writeTVar (serverNextRequestId server) $ case i of MergeRequestId i -> MergeRequestId (i+1)
+    writeTVar (serverNextRequestId server) $ case i of MergeRequestId i' -> MergeRequestId (i'+1)
     return i
 
 withWorkingDir :: (MonadIO m, MonadMask m) => Server -> (GitRepo -> m a) -> m a
@@ -189,12 +184,12 @@ data WorkerState = WorkerState { _mergeQueue    :: Queue MergeRequestId
 makeLenses ''WorkerState
 
 stateInvariant :: WorkerState -> Bool
-stateInvariant state =
+stateInvariant s =
     -- All requests in mergeQueue are in mergeRequests
-    all (`M.member` view mergeRequests state) (state ^. mergeQueue)
+    all (`M.member` view mergeRequests s) (s ^. mergeQueue)
     -- TODO: branchHead == head of last MergeRequest
     -- Each request only occurs in queue once
-    && let queue = toList $ state ^. mergeQueue
+    && let queue = toList $ s ^. mergeQueue
        in queue == nub queue
 
 
@@ -410,7 +405,7 @@ newMergeRequest server branch headCommit =
     $ NewMergeRequest { newMergeReqHead = headCommit }
 
 cancelMergeRequest :: Server -> MergeRequestId -> IO ()
-cancelMergeRequest server reqId = do
+cancelMergeRequest _server _reqId = do
     undefined
     --branchRequest server ref
 
