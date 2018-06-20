@@ -6,7 +6,6 @@ import Options.Applicative
 
 import Git (cwdRepo)
 import Hooks
-import PushMerge
 
 modes :: Parser (IO ())
 modes = subparser
@@ -19,7 +18,10 @@ printError = handle printExc
     printExc :: SomeException -> IO ()
     printExc = print
 
+preReceiveMode :: Parser (IO ())
 preReceiveMode = pure $ printError $ preReceive cwdRepo
+
+postReceiveMode :: Parser (IO ())
 postReceiveMode = pure $ printError $ postReceive cwdRepo
 
 main :: IO ()
