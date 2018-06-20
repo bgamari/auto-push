@@ -71,6 +71,7 @@ data CommitRange = CommitRange { baseCommit :: SHA
 instance ToJSON CommitRange
 instance FromJSON CommitRange
 
+-- | Run a @git@ command, throwing an exception on failure.
 runGit :: GitRepo -> String -> [String] -> String -> IO String
 runGit (GitRepo path) cmd args input = do
     logMsg $ "Git("++path++"): "++cmd++" "++unwords args++": "++input
@@ -95,7 +96,7 @@ rebase :: GitRepo
 rebase repo commits@(CommitRange base head) onto
   | base == onto = return commits
   | otherwise    = do
-    runGit repo "rebase" ["--onto", showSHA onto, showSHA base, showSHA head] ""
+    void $ runGit repo "rebase" ["--onto", showSHA onto, showSHA base, showSHA head] ""
     CommitRange onto <$> resolveRef repo (Ref "HEAD")
 
 abortRebase :: GitRepo -> IO ()

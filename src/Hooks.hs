@@ -9,7 +9,7 @@ import Servant.Client
 import Server
 import Git
 import Utils
-import PushMerge hiding (newMergeRequest)
+import PushMerge hiding (newMergeRequest, repo)
 
 -- | Read hook input provided by @git@ to a @post-receive@ or @pre-receive@
 -- hook.
@@ -37,7 +37,7 @@ postReceive repo = do
 
     -- Reset push branch back to former state
     let updates' = [ UpdateRef ref old Nothing
-                   | (old, new, ref) <- updates
+                   | (old, _new, ref) <- updates
                    , Just branch <- pure $ isBranch ref
                    , Just _ <- pure $ isMergeBranch branch
                    ]
@@ -45,7 +45,7 @@ postReceive repo = do
     updateRefs repo updates'
 
     let postMergeRequest :: (SHA, SHA, Ref) -> ClientM ()
-        postMergeRequest (old, new, ref)
+        postMergeRequest (_old, new, ref)
           | Just branch <- isBranch ref
           , Just _ <- isMergeBranch branch = do
             mergeReqId <- reqNewMergeRequest branch new

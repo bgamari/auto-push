@@ -352,7 +352,6 @@ branchWorker server branch eventQueue = do
 
     invalidateSuccessorBuilds :: MergeRequestId -> WorkerM ()
     invalidateSuccessorBuilds reqId = do
-        req <- use $ mr reqId
         Just succs <- uses mergeQueue $ successors reqId
         mapM_ cancelBuild succs
 
