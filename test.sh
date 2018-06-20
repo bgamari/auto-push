@@ -1,6 +1,9 @@
-#!/bin/bash -e
+#!/usr/bin/env bash
 
-bin=`pwd`/bin/auto-push
+set -e
+
+nix build -f . auto-push
+bin=$(realpath result/bin/auto-push)
 
 killall auto-push || true
 rm -Rf test.git test
@@ -20,11 +23,11 @@ popd
 
 # Setup hooks
 cat >test.git/hooks/pre-receive <<EOF
-#!/bin/bash -e
+#!/bin/sh -e
 $bin pre-receive
 EOF
 cat >test.git/hooks/post-receive <<EOF
-#!/bin/bash -e
+#!/bin/sh -e
 $bin post-receive
 EOF
 chmod ugo+rx test.git/hooks/{pre-receive,post-receive}
