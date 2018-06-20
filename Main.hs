@@ -7,13 +7,11 @@ import Options.Applicative
 import Git (cwdRepo)
 import Hooks
 import PushMerge
-import Server
 
 modes :: Parser (IO ())
 modes = subparser
      $ command "pre-receive" (info preReceiveMode fullDesc)
     <> command "post-receive" (info postReceiveMode fullDesc)
-    <> command "server" (info serverMode fullDesc)
 
 printError :: IO () -> IO ()
 printError = handle printExc
@@ -23,7 +21,6 @@ printError = handle printExc
 
 preReceiveMode = pure $ printError $ preReceive cwdRepo
 postReceiveMode = pure $ printError $ postReceive cwdRepo
-serverMode = pure runServer
 
 main :: IO ()
 main = do

@@ -3,7 +3,7 @@
 set -e
 
 nix build -f . auto-push
-bin=$(realpath result/bin/auto-push)
+bin=$(realpath result/bin)
 
 killall auto-push || true
 rm -Rf test.git test
@@ -24,16 +24,16 @@ popd
 # Setup hooks
 cat >test.git/hooks/pre-receive <<EOF
 #!/bin/sh -e
-$bin pre-receive
+$bin/auto-push pre-receive
 EOF
 cat >test.git/hooks/post-receive <<EOF
 #!/bin/sh -e
-$bin post-receive
+$bin/auto-push post-receive
 EOF
 chmod ugo+rx test.git/hooks/{pre-receive,post-receive}
 
 # Start server
-( cd test.git; $bin server +RTS -N4 2>&1 | awk '$0="[server] " $0' )&
+( cd test.git; $bin/test-server +RTS -N4 2>&1 | awk '$0="[server] " $0' )&
 sleep 0.1
 
 pushd test

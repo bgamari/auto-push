@@ -43,10 +43,20 @@ library
                        servant-client >= 0.13
   default-language:    Haskell2010
 
+-- The client
 executable auto-push
   main-is:             Main.hs
   ghc-options:         -threaded
   default-language:    Haskell2010
   build-depends:       base >=4.8 && <4.13,
                        optparse-applicative >= 0.12,
+                       auto-push
+
+-- A server for testing
+executable test-server
+  main-is:             TestServer.hs
+  ghc-options:         -threaded
+  default-language:    Haskell2010
+  build-depends:       base >=4.8 && <4.13,
+                       process,
                        auto-push

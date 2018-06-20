@@ -73,9 +73,9 @@ request action = do
 api :: Proxy Api
 api = Proxy
 
-runServer :: IO ()
-runServer = do
-    s <- startServer $ ServerConfig { repo = GitRepo ".", builder = testBuilder }
+runServer :: ServerConfig -> IO ()
+runServer config = do
+    s <- startServer config
     let app :: Application
         app = serve api (server s)
     Network.Wai.Handler.Warp.run serverPort app

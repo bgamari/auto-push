@@ -68,10 +68,13 @@
 --
 module PushMerge
     ( startServer
-    , ServerConfig(..)
     , Server
-      -- * Builders
-    , testBuilder
+      -- * Configuration
+    , ServerConfig(..)
+      -- * Defining builders
+    , BuildAction
+    , BuildResult(..)
+
       -- * Types
     , ManagedBranch
     , MergeRequestId
@@ -125,13 +128,6 @@ originRemote = Remote "origin"
 data ServerConfig = ServerConfig { repo :: GitRepo
                                  , builder :: BuildAction
                                  }
-
-testBuilder :: BuildAction
-testBuilder commit = do
-    threadDelay (1000*1000)
-    x <- readProcess "bash" [ "-c", "git show "++showSHA commit++" | grep fail | wc -l" ] ""
-    putStrLn  $ "Build finished: "++show x
-    return $ if read x > 0 then BuildFailed "failed" else BuildSucceeded
 
 startServer :: ServerConfig -> IO Server
 startServer config = do
