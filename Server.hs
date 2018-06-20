@@ -65,7 +65,7 @@ request :: ClientM a -> IO a
 request action = do
     mgr <- newManager defaultManagerSettings
     let url = BaseUrl Http "localhost" serverPort ""
-    res <- runClientM action (ClientEnv mgr url)
+    res <- runClientM action (ClientEnv mgr url Nothing)
     case res of
       Left err -> fail $ "Server.request: "++show err
       Right a -> return a

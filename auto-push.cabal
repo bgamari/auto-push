@@ -41,6 +41,6 @@ executable auto-push
                        lens >= 4.14,
                        warp >= 3.2,
                        http-client >= 0.4,
-                       servant-server >= 0.9,
-                       servant-client >= 0.9
+                       servant-server >= 0.10,
+                       servant-client >= 0.13
   default-language:    Haskell2010
