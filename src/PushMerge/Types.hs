@@ -93,7 +93,7 @@ data RequestStatus a
 
 data BuildResult = BuildSucceeded
                  | BuildFailed String
-                 deriving (Generic)
+                 deriving (Generic, Show)
                  deriving anyclass (FromJSON, ToJSON)
 
 -- | Test-build a SHA, returning 'Just' on error or 'Nothing' on success.

@@ -1,0 +1,21 @@
+name:                ghc-auto-push
+version:             0.1.0.0
+synopsis:            auto-push configuration for GHC
+-- description:         
+license:             BSD3
+license-file:        LICENSE
+author:              Ben Gamari
+maintainer:          ben@smart-cactus.org
+copyright:           (c) 2018 Ben Gamari
+category:            Development
+build-type:          Simple
+cabal-version:       >=1.10
+
+executable ghc-auto-push
+  main-is:             Main.hs
+  build-depends:       base >=4.10 && <4.13,
+                       optparse-applicative >= 0.14,
+                       text,
+                       circlehs,
+                       auto-push
+  default-language:    Haskell2010
