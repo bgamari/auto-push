@@ -26,6 +26,7 @@ module Git
     , UpdateRefAction(..)
       -- * Remotes
     , Remote(..)
+    , gitRepoToRemote
     , push
     , fetch
     , remoteUpdate
@@ -48,8 +49,11 @@ import Data.Aeson
 import Servant
 import Utils
 
+-- | A local git repository.
+
 newtype GitRepo = GitRepo FilePath
                 deriving (Show)
+-- TODO: This would be better-named WorkingDir or LocalGitRepo.
 
 cwdRepo :: GitRepo
 cwdRepo = GitRepo "."
@@ -184,7 +188,12 @@ updateRefs repo actions =
     toLine (DeleteRef ref Nothing) =
         unwords ["delete", sRef ref]
 
+-- | A remote git repository.
 newtype Remote = Remote T.Text
+
+-- | Local repositories can be used as remote repositories.
+gitRepoToRemote :: GitRepo -> Remote
+gitRepoToRemote (GitRepo repo) = Remote $ T.pack repo
 
 push :: GitRepo -> Remote -> Commit -> Ref -> IO ()
 push repo (Remote remote) commit ref =
