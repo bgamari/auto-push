@@ -22,15 +22,7 @@ git push -u origin master
 popd
 
 # Setup hooks
-cat >test.git/hooks/pre-receive <<EOF
-#!/bin/sh -e
-$bin/auto-push pre-receive
-EOF
-cat >test.git/hooks/post-receive <<EOF
-#!/bin/sh -e
-$bin/auto-push post-receive
-EOF
-chmod ugo+rx test.git/hooks/{pre-receive,post-receive}
+./install-hooks test.git
 
 # Start server
 ( cd test.git; $bin/test-server +RTS -N4 2>&1 | awk '$0="[server] " $0' )&
