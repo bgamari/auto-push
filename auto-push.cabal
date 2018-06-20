@@ -22,6 +22,7 @@ library
                        Hooks
                        Server
                        RpcChannel
+  ghc-options:         -Wall
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.8 && <4.13,
                        transformers >= 0.5,
@@ -46,7 +47,7 @@ library
 -- The client
 executable auto-push
   main-is:             Main.hs
-  ghc-options:         -threaded
+  ghc-options:         -threaded -Wall
   default-language:    Haskell2010
   build-depends:       base >=4.8 && <4.13,
                        optparse-applicative >= 0.12,
@@ -55,7 +56,7 @@ executable auto-push
 -- A server for testing
 executable test-server
   main-is:             TestServer.hs
-  ghc-options:         -threaded
+  ghc-options:         -threaded -Wall
   default-language:    Haskell2010
   build-depends:       base >=4.8 && <4.13,
                        process,
