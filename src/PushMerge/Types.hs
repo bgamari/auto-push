@@ -15,7 +15,6 @@ import Data.Semigroup
 
 import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
-import qualified Data.Text as T
 import Control.Concurrent.Async
 import Control.Lens
 import Data.Aeson (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
@@ -55,9 +54,6 @@ newtype ManagedBranch = ManagedBranch Branch
                       deriving (Show, Eq, Ord, Generic)
                       deriving newtype (FromJSON, ToJSON, FromJSONKey, ToJSONKey,
                                         FromHttpApiData, ToHttpApiData)
-
-isMergeBranch :: Branch -> Maybe ManagedBranch
-isMergeBranch (Branch ref) = ManagedBranch . Branch <$> T.stripPrefix "merge/" ref
 
 -- | The name of the branch which we pull merge requests from
 mergeBranch :: ManagedBranch -> Branch

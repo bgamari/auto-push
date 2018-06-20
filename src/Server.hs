@@ -1,10 +1,16 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 module Server where
 
+import GHC.Generics
 import Control.Monad.IO.Class
 import Control.Monad.Catch
+
+import Data.Aeson
 import qualified Network.Wai.Handler.Warp
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Servant
@@ -17,12 +23,18 @@ import PushMerge (MergeRequestId, BranchStatus, ManagedBranch)
 serverPort :: Int
 serverPort = 8880
 
+-- | Is a branch managed?
+data IsManaged a = Managed a
+                 | NotManaged
+                 deriving (Generic)
+                 deriving anyclass (FromJSON, ToJSON)
+
 type Api =
           "branch" :> Capture "branch" Branch
                    :> ReqBody '[JSON] SHA
-                   :> Post '[JSON] MergeRequestId
+                   :> Post '[JSON] (IsManaged MergeRequestId)
      :<|> "branch" :> Capture "branch" Branch
-                   :> Get '[JSON] BranchStatus
+                   :> Get '[JSON] (IsManaged BranchStatus)
      :<|> "branch" :> Get '[JSON] [ManagedBranch]
      :<|> "merge"  :> Get '[JSON] [MergeRequestId]
      :<|> "merge"  :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
@@ -46,10 +58,11 @@ server pmServer =
     cancelMergeRequest reqId =
         liftIO $ PushMerge.cancelMergeRequest pmServer reqId
 
-    catchBranchNotManaged = handle (\PushMerge.BranchNotManagedException -> throwM err403)
+    catchBranchNotManaged =
+        handle (\PushMerge.BranchNotManagedException -> return NotManaged) . fmap Managed
 
-reqNewMergeRequest :: Branch -> SHA -> ClientM MergeRequestId
-reqGetBranchStatus :: Branch -> ClientM BranchStatus
+reqNewMergeRequest :: Branch -> SHA -> ClientM (IsManaged MergeRequestId)
+reqGetBranchStatus :: Branch -> ClientM (IsManaged BranchStatus)
 reqListBranches :: ClientM [ManagedBranch]
 reqListMergeRequests :: ClientM [MergeRequestId]
 reqCancelMergeRequest :: MergeRequestId -> ClientM ()

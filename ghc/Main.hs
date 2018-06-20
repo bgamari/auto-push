@@ -12,17 +12,18 @@ import Git
 import Server
 import qualified PushMerge
 
-opts :: Parser (AccountAPIToken, SHA)
+opts :: Parser (AccountAPIToken)
 opts =
-    (,)
-    <$> option (AccountAPIToken . T.pack <$> str) (long "token" <> short 't' <> help "CircleCI token")
-    <*> argument (SHA . T.pack <$> str) mempty
+    option (AccountAPIToken . T.pack <$> str) (long "token" <> short 't' <> help "CircleCI token")
 
 main :: IO ()
 main = do
-    (token, test) <- execParser $ info (helper <*> opts) mempty
-    circleCIBuilder token srcRepo test >>= print
-    return ()
+    (token) <- execParser $ info (helper <*> opts) mempty
+    let builder = circleCIBuilder token srcRepo
+    runServer $ PushMerge.ServerConfig { PushMerge.repo = srcRepo
+                                       , PushMerge.builder = builder
+                                       , PushMerge.isMergeBranch = PushMerge.defaultIsMergeBranch
+                                       }
 
 srcRepo = GitRepo "test"
 

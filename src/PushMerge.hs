@@ -69,8 +69,11 @@
 module PushMerge
     ( startServer
     , Server
+
       -- * Configuration
     , ServerConfig(..)
+    , defaultIsMergeBranch
+
       -- * Defining builders
     , BuildAction
     , BuildResult(..)
@@ -78,7 +81,7 @@ module PushMerge
       -- * Types
     , ManagedBranch
     , MergeRequestId
-    , isMergeBranch
+
       -- * Requests
     , BranchNotManagedException(..)
     , newMergeRequest
@@ -122,7 +125,12 @@ originRemote = Remote "origin"
 
 data ServerConfig = ServerConfig { repo :: GitRepo
                                  , builder :: BuildAction
+                                 , isMergeBranch :: Branch -> Maybe ManagedBranch
                                  }
+
+defaultIsMergeBranch :: Branch -> Maybe ManagedBranch
+defaultIsMergeBranch (Branch ref) =
+    ManagedBranch . Branch <$> T.stripPrefix "merge/" ref
 
 startServer :: ServerConfig -> IO Server
 startServer config = do
@@ -138,6 +146,7 @@ startServer config = do
 
     return $ Server { serverStartBuild = const $ builder config
                     , serverRepo = repo config
+                    , serverIsMergeBranch = isMergeBranch config
                     , ..
                     }
 
@@ -163,6 +172,7 @@ withWorkingDir server action = do
 
 
 data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest))
+                     , serverIsMergeBranch  :: Branch -> Maybe ManagedBranch
                      , serverNextRequestId  :: TVar MergeRequestId
                      , serverStartBuild     :: ManagedBranch -> BuildAction
                      , serverRepo           :: GitRepo
@@ -375,7 +385,7 @@ data BranchNotManagedException = BranchNotManagedException
 
 branchRequest :: Server -> Branch -> BranchRequest a -> IO a
 branchRequest server branch req
-  | Just managed <- isMergeBranch branch = do
+  | Just managed <- serverIsMergeBranch server branch = do
         putStrLn "Request"
         r <- atomically $ do
             branches <- readTVar $ serverBranches server

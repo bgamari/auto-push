@@ -9,7 +9,10 @@ import Server
 
 main :: IO ()
 main = do
-    runServer $ ServerConfig { repo = GitRepo ".", builder = testBuilder }
+    runServer $ ServerConfig { repo = GitRepo "."
+                             , builder = testBuilder
+                             , isMergeBranch = defaultIsMergeBranch
+                             }
 
 -- | A simple builder for testing which fails depending upon whether the commit
 -- message contains the string @fail@.
