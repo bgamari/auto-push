@@ -24,14 +24,14 @@ executable auto-push
                        Server
                        RpcChannel
   other-extensions:    GeneralizedNewtypeDeriving
-  build-depends:       base >=4.8 && <4.11,
+  build-depends:       base >=4.8 && <4.13,
                        transformers >= 0.5,
                        exceptions >= 0.8,
                        stm >= 2.4,
                        async >= 2.1,
                        directory >= 1.2,
                        temporary >= 1.2,
-                       process >=1.4 && <1.5,
+                       process >=1.4 && <1.7,
                        optparse-applicative >= 0.12,
                        bytestring >=0.10 && <0.11,
                        text >= 1.2,
@@ -41,6 +41,6 @@ executable auto-push
                        lens >= 4.14,
                        warp >= 3.2,
                        http-client >= 0.4,
-                       servant-server >= 0.8,
-                       servant-client
+                       servant-server >= 0.9,
+                       servant-client >= 0.9
   default-language:    Haskell2010

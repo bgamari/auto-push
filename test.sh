@@ -56,10 +56,10 @@ do_commit file1
 sleep 1
 
 echo
-git checkout -b branch2 master; do_commit file2
-git checkout -b branch3 master; fail=ail do_commit file3
-git checkout -b branch4 master; do_commit file2
-git checkout -b branch5; do_commit file4
+git checkout -b branch2 master; fail= do_commit file2
+git checkout -b branch3 master; fail= do_commit file3
+git checkout -b branch4 master; fail= do_commit file2
+git checkout -b branch5; do_commit fail= file4
 
 git push origin branch1:merge/master
 git push origin branch2:merge/master
