@@ -5,15 +5,14 @@ module Server where
 
 import Control.Monad.IO.Class
 import Control.Monad.Catch
-import qualified Data.Map as M
 import qualified Network.Wai.Handler.Warp
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Servant
-import Servant.Server
 import Servant.Client
 
 import Git
-import PushMerge
+import qualified PushMerge
+import PushMerge (MergeRequestId, BranchStatus, ManagedBranch)
 
 serverPort :: Int
 serverPort = 8880
@@ -29,7 +28,7 @@ type Api =
      :<|> "merge"  :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
 
 server :: PushMerge.Server -> Servant.Server Api
-server server =
+server pmServer =
          newMergeRequest
     :<|> getBranchStatus
     :<|> listBranches
@@ -37,17 +36,17 @@ server server =
     :<|> cancelMergeRequest
   where
     newMergeRequest ref sha =
-        catchBranchNotManaged $ liftIO $ PushMerge.newMergeRequest server ref sha
+        catchBranchNotManaged $ liftIO $ PushMerge.newMergeRequest pmServer ref sha
     getBranchStatus ref =
-        catchBranchNotManaged $ liftIO $ PushMerge.getBranchStatus server ref
+        catchBranchNotManaged $ liftIO $ PushMerge.getBranchStatus pmServer ref
     listBranches =
-        liftIO $ PushMerge.listBranches server
+        liftIO $ PushMerge.listBranches pmServer
     listMergeRequests =
         undefined
     cancelMergeRequest reqId =
-        liftIO $ PushMerge.cancelMergeRequest server reqId
+        liftIO $ PushMerge.cancelMergeRequest pmServer reqId
 
-    catchBranchNotManaged = handle (\BranchNotManagedException -> throwM err403)
+    catchBranchNotManaged = handle (\PushMerge.BranchNotManagedException -> throwM err403)
 
 reqNewMergeRequest :: Branch -> SHA -> ClientM MergeRequestId
 reqGetBranchStatus :: Branch -> ClientM BranchStatus
@@ -73,9 +72,9 @@ request action = do
 api :: Proxy Api
 api = Proxy
 
-runServer :: ServerConfig -> IO ()
+runServer :: PushMerge.ServerConfig -> IO ()
 runServer config = do
-    s <- startServer config
+    s <- PushMerge.startServer config
     let app :: Application
         app = serve api (server s)
     Network.Wai.Handler.Warp.run serverPort app
