@@ -202,4 +202,4 @@ fetch repo (Remote remote) refs =
 
 remoteUpdate :: GitRepo -> Remote -> IO ()
 remoteUpdate repo (Remote remote) =
-    void $ runGit repo "remote" [ "update" ] ""
+    void $ runGit repo "remote" [ "update", T.unpack remote ] ""
