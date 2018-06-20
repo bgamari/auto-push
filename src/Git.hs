@@ -38,11 +38,12 @@ import Control.Monad
 import GHC.Generics
 import System.Exit
 import Control.Exception
+import Prelude hiding (head)
 
 import qualified Data.Text as T
 import System.Process
 
-import Network.URI
+import qualified Network.URI as URI
 import Data.Aeson
 import Servant
 import Utils
@@ -122,20 +123,20 @@ newtype Ref = Ref { getRef :: T.Text }
             deriving newtype (ToJSON, FromJSON)
 
 instance FromHttpApiData Ref where
-    parseUrlPiece = Right . Ref . T.pack . unEscapeString . T.unpack
+    parseUrlPiece = Right . Ref . T.pack . URI.unEscapeString . T.unpack
 
 instance ToHttpApiData Ref where
-    toUrlPiece (Ref x) = T.pack $ escapeURIString isUnescapedInURIComponent (T.unpack x)
+    toUrlPiece (Ref x) = T.pack $ URI.escapeURIString URI.isUnescapedInURIComponent (T.unpack x)
 
 newtype Branch = Branch { getBranchName :: T.Text }
             deriving (Show, Eq, Ord)
             deriving newtype (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
 
 instance FromHttpApiData Branch where
-    parseUrlPiece = Right . Branch . T.pack . unEscapeString . T.unpack
+    parseUrlPiece = Right . Branch . T.pack . URI.unEscapeString . T.unpack
 
 instance ToHttpApiData Branch where
-    toUrlPiece (Branch x) = T.pack $ escapeURIString isUnescapedInURIComponent (T.unpack x)
+    toUrlPiece (Branch x) = T.pack $ URI.escapeURIString URI.isUnescapedInURIComponent (T.unpack x)
 
 isBranch :: Ref -> Maybe Branch
 isBranch (Ref b) = Branch <$> T.stripPrefix "refs/heads/" b
