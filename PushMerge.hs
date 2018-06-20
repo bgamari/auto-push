@@ -68,7 +68,10 @@
 --
 module PushMerge
     ( startServer
+    , ServerConfig(..)
     , Server
+      -- * Builders
+    , testBuilder
       -- * Types
     , ManagedBranch
     , MergeRequestId
@@ -119,22 +122,33 @@ import Control.Concurrent (threadDelay)
 originRemote :: Remote
 originRemote = Remote "origin"
 
-startServer :: GitRepo -> IO Server
-startServer serverRepo = do
+data ServerConfig = ServerConfig { repo :: GitRepo
+                                 , builder :: BuildAction
+                                 }
+
+testBuilder :: BuildAction
+testBuilder commit = do
+    threadDelay (1000*1000)
+    x <- readProcess "bash" [ "-c", "git show "++showSHA commit++" | grep fail | wc -l" ] ""
+    putStrLn  $ "Build finished: "++show x
+    return $ if read x > 0 then BuildFailed "failed" else BuildSucceeded
+
+startServer :: ServerConfig -> IO Server
+startServer config = do
     serverBranches <- newTVarIO mempty
     serverNextRequestId <- newTVarIO (MergeRequestId 0)
-    let serverStartBuild _ commit = do
-            threadDelay (1000*1000)
-            x <- readProcess "bash" [ "-c", "git show "++showSHA commit++" | grep fail | wc -l" ] ""
-            putStrLn  $ "Build finished: "++show x
-            return $ if read x > 0 then BuildFailed "failed" else BuildSucceeded
 
+    -- Create some working directories for our pool
     temp <- getTemporaryDirectory
     workingDirs <- replicateM 3 $ do
         dir <- createTempDirectory temp "repo"
-        Git.clone serverRepo dir
+        Git.clone (repo config) dir
     serverWorkingDirPool <- newTVarIO workingDirs
-    return $ Server {..}
+
+    return $ Server { serverStartBuild = const $ builder config
+                    , serverRepo = repo config
+                    , ..
+                    }
 
 freshRequestId :: Server -> IO MergeRequestId
 freshRequestId server = atomically $ do
