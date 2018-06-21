@@ -284,6 +284,7 @@ branchWorker server branch eventQueue = do
                                       ]
               lift $ mergeQueue .= rest
               lift $ logMsg $ "Successfully merged "++show reqId
+              lift $ mergeRequests . at reqId . _Just . mergeReqStatus .= Merged headSha
               lift $ mergeGoodRequests
 
           FailedToBuild _ err -> lift $ do

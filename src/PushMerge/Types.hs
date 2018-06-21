@@ -83,7 +83,8 @@ data RequestStatus a
     | FailedToRebase SHA               -- ^ failed to rebase onto the given base commit
     | Building CommitRange a           -- ^ building the given rebased commits
     | FailedToBuild CommitRange String -- ^ failed to build the given rebased commits
-    | Succeeded CommitRange            -- ^ the given rebased commits were built sucessfully
+    | Succeeded CommitRange            -- ^ the given rebased commits were built successfully
+    | Merged SHA                       -- ^ the 
     deriving (Show, Functor, Generic)
     deriving anyclass (FromJSON, ToJSON)
 
