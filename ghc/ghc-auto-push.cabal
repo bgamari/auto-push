@@ -13,6 +13,7 @@ cabal-version:       >=1.10
 
 executable ghc-auto-push
   main-is:             Main.hs
+  ghc-options:         -threaded
   build-depends:       base >=4.10 && <4.13,
                        optparse-applicative >= 0.14,
                        text,
