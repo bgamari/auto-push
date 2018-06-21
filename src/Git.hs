@@ -80,6 +80,7 @@ runGit :: GitRepo -> String -> [String] -> String -> IO String
 runGit (GitRepo path) cmd args input = do
     logMsg $ "Git("++path++"): "++cmd++" "++unwords args++": "++input
     (code, out, err) <- readProcessWithExitCode "git" (["-C", path, cmd] ++ args) input
+    logMsg $ "Git("++path++"): "++cmd++" "++unwords args++": done"
     case code of
       ExitSuccess -> return out
       ExitFailure n -> throwIO $ GitException { gitRepo = GitRepo path

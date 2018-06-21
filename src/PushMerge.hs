@@ -253,12 +253,17 @@ branchWorker server branch eventQueue = do
                   lift $ logMsg $ "Rebased "++show reqId++": "++show commits
 
                   -- Push rebased commits
+                  lift $ logMsg $ show (head', toBuildRef reqId)
+                  lift $ logMsg "hello"
                   liftIO $ Git.push repo originRemote (CommitSha head') (toBuildRef reqId)
                   lift $ logMsg $ "Pushed rebase "++show reqId++": "++show commits
                   return commits
 
               lift $ branchHead .= headCommit commits
-              builder <- liftIO $ async $ handleAll (pure . BuildFailed . show)
+              let handleBuildException exc = do
+                      Utils.logMsg $ show reqId++" failed with exception: "++show exc
+                      pure $ BuildFailed $ show exc
+              builder <- liftIO $ async $ handleAll handleBuildException
                          $ serverStartBuild server branch (headCommit commits)
               lift $ mrStatus reqId .= Building commits builder
               lift $ logMsg $ show reqId++" is now building"
@@ -284,7 +289,7 @@ branchWorker server branch eventQueue = do
                                       ]
               lift $ mergeQueue .= rest
               lift $ logMsg $ "Successfully merged "++show reqId
-              lift $ mergeRequests . at reqId . _Just . mergeReqStatus .= Merged headSha
+              lift $ mrStatus reqId .= Merged headSha
               lift $ mergeGoodRequests
 
           FailedToBuild _ err -> lift $ do
@@ -386,7 +391,7 @@ data BranchNotManagedException = BranchNotManagedException
 branchRequest :: Server -> Branch -> BranchRequest a -> IO a
 branchRequest server branch req
   | Just managed <- serverIsMergeBranch server branch = do
-        putStrLn "Request"
+        putStrLn $ "Request " ++ show req
         r <- atomically $ do
             branches <- readTVar $ serverBranches server
             case M.lookup managed branches of
