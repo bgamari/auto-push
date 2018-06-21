@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
@@ -103,6 +104,8 @@ data BranchRequest a where
     CancelMergeRequest :: { cancelMergeReqId :: MergeRequestId }
                        -> BranchRequest ()
     GetBranchStatus :: BranchRequest BranchStatus
+
+deriving instance Show (BranchRequest a)
 
 data BranchStatus = BranchStatus { branchCurrentHead :: SHA
                                  , branchMergeRequests :: [(MergeRequestId, RequestStatus ())]
