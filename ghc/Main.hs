@@ -25,7 +25,7 @@ main = do
                                        , PushMerge.isMergeBranch = PushMerge.defaultIsMergeBranch
                                        }
 
-srcRepo = GitRepo "test"
+srcRepo = GitRepo "test.git"
 
 destRepoOwner, destRepoName :: T.Text
 destRepoOwner = "bgamari"
