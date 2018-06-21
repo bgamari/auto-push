@@ -412,10 +412,10 @@ newMergeRequest server branch headCommit =
     branchRequest server branch
     $ NewMergeRequest { newMergeReqHead = headCommit }
 
-cancelMergeRequest :: Server -> MergeRequestId -> IO ()
-cancelMergeRequest _server _reqId = do
-    undefined
-    --branchRequest server ref
+cancelMergeRequest :: Server -> Branch -> MergeRequestId -> IO ()
+cancelMergeRequest server branch reqId = do
+    branchRequest server branch
+    $ CancelMergeRequest reqId
 
 getBranchStatus :: Server -> Branch -> IO BranchStatus
 getBranchStatus server branch =

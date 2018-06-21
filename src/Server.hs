@@ -36,15 +36,16 @@ type Api =
      :<|> "branch" :> Capture "branch" Branch
                    :> Get '[JSON] (IsManaged BranchStatus)
      :<|> "branch" :> Get '[JSON] [ManagedBranch]
-     :<|> "merge"  :> Get '[JSON] [MergeRequestId]
-     :<|> "merge"  :> Capture "merge" MergeRequestId :> Delete '[JSON] ()
+     :<|> "branch" :> Capture "branch" Branch
+                   :> "merge"
+                   :> Capture "merge" MergeRequestId
+                   :> Delete '[JSON] ()
 
 server :: PushMerge.Server -> Servant.Server Api
 server pmServer =
          newMergeRequest
     :<|> getBranchStatus
     :<|> listBranches
-    :<|> listMergeRequests
     :<|> cancelMergeRequest
   where
     newMergeRequest ref sha =
@@ -53,10 +54,8 @@ server pmServer =
         catchBranchNotManaged $ liftIO $ PushMerge.getBranchStatus pmServer ref
     listBranches =
         liftIO $ PushMerge.listBranches pmServer
-    listMergeRequests =
-        undefined
-    cancelMergeRequest reqId =
-        liftIO $ PushMerge.cancelMergeRequest pmServer reqId
+    cancelMergeRequest branch reqId =
+        liftIO $ PushMerge.cancelMergeRequest pmServer branch reqId
 
     catchBranchNotManaged =
         handle (\PushMerge.BranchNotManagedException -> return NotManaged) . fmap Managed
@@ -64,12 +63,10 @@ server pmServer =
 reqNewMergeRequest :: Branch -> SHA -> ClientM (IsManaged MergeRequestId)
 reqGetBranchStatus :: Branch -> ClientM (IsManaged BranchStatus)
 reqListBranches :: ClientM [ManagedBranch]
-reqListMergeRequests :: ClientM [MergeRequestId]
-reqCancelMergeRequest :: MergeRequestId -> ClientM ()
+reqCancelMergeRequest :: Branch -> MergeRequestId -> ClientM ()
 reqNewMergeRequest
     :<|> reqGetBranchStatus
     :<|> reqListBranches
-    :<|> reqListMergeRequests
     :<|> reqCancelMergeRequest
     = client api
 
