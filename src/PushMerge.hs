@@ -135,7 +135,6 @@ defaultIsMergeBranch (Branch ref) =
 startServer :: ServerConfig -> IO Server
 startServer config = do
     serverBranches <- newTVarIO mempty
-    serverNextRequestId <- newTVarIO (MergeRequestId 0)
 
     -- Create some working directories for our pool
     temp <- getTemporaryDirectory
@@ -149,12 +148,6 @@ startServer config = do
                     , serverIsMergeBranch = isMergeBranch config
                     , ..
                     }
-
-freshRequestId :: Server -> IO MergeRequestId
-freshRequestId server = atomically $ do
-    i <- readTVar $ serverNextRequestId server
-    writeTVar (serverNextRequestId server) $ case i of MergeRequestId i' -> MergeRequestId (i'+1)
-    return i
 
 withWorkingDir :: (MonadIO m, MonadMask m) => Server -> (GitRepo -> m a) -> m a
 withWorkingDir server action = do
@@ -173,7 +166,6 @@ withWorkingDir server action = do
 
 data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest))
                      , serverIsMergeBranch  :: Branch -> Maybe ManagedBranch
-                     , serverNextRequestId  :: TVar MergeRequestId
                      , serverStartBuild     :: ManagedBranch -> BuildAction
                      , serverRepo           :: GitRepo
                      , serverWorkingDirPool :: TVar [GitRepo]
@@ -189,6 +181,7 @@ data WorkerState = WorkerState { _mergeQueue    :: Queue MergeRequestId
                                , _mergeRequests :: M.Map MergeRequestId MergeRequestState
                                , _failedMerges  :: [MergeRequestId]
                                , _branchHead    :: SHA
+                               , _nextRequestId :: MergeRequestId
                                }
 
 makeLenses ''WorkerState
@@ -220,6 +213,7 @@ branchWorker server branch eventQueue = do
         s0 = WorkerState { _mergeQueue    = emptyQueue
                          , _mergeRequests = mempty
                          , _failedMerges  = []
+                         , _nextRequestId = MergeRequestId 0
                          , _branchHead    = head
                          }
     evalStateT (forever go) s0
@@ -334,7 +328,7 @@ branchWorker server branch eventQueue = do
         baseCommit <- liftIO $ Git.mergeBase (serverRepo server)
                                              (CommitRef $ branchRef $ upstreamBranch branch)
                                              (CommitSha newMergeReqHead)
-        reqId <- liftIO $ freshRequestId server
+        reqId <- freshRequestId
         liftIO $ Git.updateRefs (serverRepo server)
                                 [ UpdateRef (toOrigRef reqId) newMergeReqHead Nothing ]
         mergeQueue %= flip appendQueue reqId
@@ -373,6 +367,11 @@ branchWorker server branch eventQueue = do
           Building _ builder -> do liftIO $ cancel builder
           _                  -> return ()
         mrStatus reqId .= PendingBuild
+
+    freshRequestId :: WorkerM MergeRequestId
+    freshRequestId =
+        let next (MergeRequestId n) = MergeRequestId (succ n)
+        in nextRequestId <<%= next
 
     logMsg :: String -> WorkerM ()
     logMsg = liftIO . Utils.logMsg . ("Worker: "++)
