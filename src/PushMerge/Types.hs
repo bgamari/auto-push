@@ -70,7 +70,7 @@ upstreamBranch :: ManagedBranch -> Branch
 upstreamBranch (ManagedBranch branch) = branch
 
 
-
+-- | Unique per 'ManagedBranch'.
 newtype MergeRequestId = MergeRequestId Int
                        deriving (Eq, Ord, Show, Generic)
                        deriving newtype (FromJSON, ToJSON, FromHttpApiData, ToHttpApiData)
@@ -90,9 +90,16 @@ data RequestStatus a
     | Building CommitRange a           -- ^ building the given rebased commits
     | FailedToBuild CommitRange String -- ^ failed to build the given rebased commits
     | Succeeded CommitRange            -- ^ the given rebased commits were built successfully
-    | Merged SHA                       -- ^ the 
+    | Merged SHA                       -- ^ the request has been merged to the branch
     deriving (Show, Functor, Generic)
     deriving anyclass (FromJSON, ToJSON)
+
+requestHeadCommit :: RequestStatus a -> Maybe SHA
+requestHeadCommit PendingBuild        = Nothing
+requestHeadCommit (Building r _)      = Just $ headCommit r
+requestHeadCommit (FailedToBuild _ _) = Nothing
+requestHeadCommit (Succeeded r)       = Just $ headCommit r
+requestHeadCommit (Merged r)          = Just r
 
 data BuildResult = BuildSucceeded
                  | BuildFailed String
@@ -104,8 +111,9 @@ type BuildAction = SHA -> IO BuildResult
 
 
 data BranchRequest a where
-    NewMergeRequest :: { newMergeReqHead :: SHA }
-                    -> BranchRequest MergeRequestId
+    NewMergeRequest :: { newMergeReqHead :: SHA
+                       , newMergeReqId :: MergeRequestId }
+                    -> BranchRequest ()
     CancelMergeRequest :: { cancelMergeReqId :: MergeRequestId }
                        -> BranchRequest ()
     GetBranchStatus :: BranchRequest BranchStatus

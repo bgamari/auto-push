@@ -164,7 +164,7 @@ withWorkingDir server action = do
     release dir = liftIO $ atomically $ modifyTVar pool (dir:)
 
 
-data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest))
+data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest, TVar MergeRequestId))
                      , serverIsMergeBranch  :: Branch -> Maybe ManagedBranch
                      , serverStartBuild     :: ManagedBranch -> BuildAction
                      , serverRepo           :: GitRepo
@@ -181,7 +181,6 @@ data WorkerState = WorkerState { _mergeQueue    :: Queue MergeRequestId
                                , _mergeRequests :: M.Map MergeRequestId MergeRequestState
                                , _failedMerges  :: [MergeRequestId]
                                , _branchHead    :: SHA
-                               , _nextRequestId :: MergeRequestId
                                }
 
 makeLenses ''WorkerState
@@ -213,17 +212,16 @@ branchWorker server branch eventQueue = do
         s0 = WorkerState { _mergeQueue    = emptyQueue
                          , _mergeRequests = mempty
                          , _failedMerges  = []
-                         , _nextRequestId = MergeRequestId 0
                          , _branchHead    = head
                          }
     evalStateT (forever go) s0
   where
     go :: WorkerM ()
     go = do
-        uses mergeQueue $ \q -> logMsg $ "Merge queue: "++show (toList q)
+        join $ uses mergeQueue $ \q -> logMsg $ "Merge queue: "++show (toList q)
         q <- use mergeQueue
         logMsg $ "Merge queue: "++show (toList q)
-        join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
+        Just () <- join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
         mergeGoodRequests
         logMsg "worker waiting"
         doEvent <- join $ uses id $ liftIO . atomically . getEvent
@@ -331,10 +329,10 @@ branchWorker server branch eventQueue = do
     -- Handling events
     handleBranchRequest :: BranchRequest a -> WorkerM a
     handleBranchRequest (NewMergeRequest {..}) = do
+        let reqId = newMergeReqId
         baseCommit <- liftIO $ Git.mergeBase (serverRepo server)
                                              (CommitRef $ branchRef $ upstreamBranch branch)
                                              (CommitSha newMergeReqHead)
-        reqId <- freshRequestId
         liftIO $ Git.updateRefs (serverRepo server)
                                 [ UpdateRef (toOrigRef reqId) newMergeReqHead Nothing ]
         mergeQueue %= flip appendQueue reqId
@@ -344,7 +342,6 @@ branchWorker server branch eventQueue = do
                               , _mergeReqStatus      = PendingBuild
                               , _mergeReqBranch      = branch
                               }
-        return reqId
     handleBranchRequest (CancelMergeRequest {..}) = cancelBuild cancelMergeReqId
     handleBranchRequest (GetBranchStatus{}) =
         BranchStatus
@@ -374,11 +371,6 @@ branchWorker server branch eventQueue = do
           _                  -> return ()
         mrStatus reqId .= PendingBuild
 
-    freshRequestId :: WorkerM MergeRequestId
-    freshRequestId =
-        let next (MergeRequestId n) = MergeRequestId (succ n)
-        in nextRequestId <<%= next
-
     logMsg :: String -> WorkerM ()
     logMsg = liftIO . Utils.logMsg . ("Worker: "++)
 
@@ -388,25 +380,47 @@ branchWorker server branch eventQueue = do
 data BranchNotManagedException = BranchNotManagedException
                                deriving (Exception, Show)
 
-branchRequest :: Server -> Branch -> BranchRequest a -> IO a
-branchRequest server branch req
+branchRequest :: Server -> Branch
+              -> BranchRequest a -> IO a
+branchRequest server branch req = do
+    (chan, _) <- getBranchChannel server branch
+    putStrLn $ "Request " ++ show req
+    sendRpc chan req
+
+freshRequestId :: TVar MergeRequestId -> STM MergeRequestId
+freshRequestId nextRequestId = do
+    MergeRequestId n <- readTVar nextRequestId
+    writeTVar nextRequestId (MergeRequestId $ succ n)
+    return $ MergeRequestId n
+
+getBranchChannel :: Server -> Branch
+                 -> IO (RpcChan BranchRequest, TVar MergeRequestId)
+getBranchChannel server branch
   | Just managed <- serverIsMergeBranch server branch = do
-        putStrLn $ "Request " ++ show req
-        r <- atomically $ do
-            branches <- readTVar $ serverBranches server
-            case M.lookup managed branches of
-              Just chan -> return $ Right chan
-              Nothing -> do chan <- newRpcChan
-                            writeTVar (serverBranches server) $ M.insert managed chan branches
-                            return $ Left chan
-        case r of
-          Right chan -> sendRpc chan req
-          Left chan -> do
-              putStrLn $ "Starting worker for "++show branch
-              worker <- async $ branchWorker server managed chan
-              link worker
-              branchRequest server branch req
-  | otherwise = throwM $ BranchNotManagedException
+        (chan, nextRequestId, startIt) <-
+            atomically $ getOrStartBranchWorker managed
+        startIt
+        return (chan, nextRequestId)
+  | otherwise = throwM BranchNotManagedException
+  where
+    getOrStartBranchWorker
+        :: ManagedBranch
+        -> STM (RpcChan BranchRequest, TVar MergeRequestId, IO ())
+    getOrStartBranchWorker managed = do
+        branches <- readTVar $ serverBranches server
+        case M.lookup managed branches of
+          Just (chan, nextRequestId) -> do
+              return (chan, nextRequestId, return ())
+          Nothing -> do
+              chan <- newRpcChan
+              nextRequestId <- newTVar $ MergeRequestId 0
+              writeTVar (serverBranches server)
+                  $ M.insert managed (chan, nextRequestId) branches
+              let startIt = do
+                      putStrLn $ "Starting worker for "++show branch
+                      worker <- async $ branchWorker server managed chan
+                      link worker
+              return (chan, nextRequestId, startIt)
 
 data NewMergeRequestError = CommitHasNoMergeBase
                           deriving (Show, Generic, Exception)
@@ -414,14 +428,18 @@ data NewMergeRequestError = CommitHasNoMergeBase
 
 newMergeRequest :: Server -> Branch -> SHA
                 -> IO MergeRequestId
-newMergeRequest server branch headCommit =
-    branchRequest server branch
-    $ NewMergeRequest { newMergeReqHead = headCommit }
+newMergeRequest server branch headCommit = do
+    (chan, nextRequestId) <- getBranchChannel server branch
+    reqId <- atomically $ freshRequestId nextRequestId
+    void $ async $ sendRpc chan
+        $ NewMergeRequest { newMergeReqHead = headCommit
+                          , newMergeReqId = reqId
+                          }
+    return reqId
 
 cancelMergeRequest :: Server -> Branch -> MergeRequestId -> IO ()
 cancelMergeRequest server branch reqId = do
-    branchRequest server branch
-    $ CancelMergeRequest reqId
+    branchRequest server branch $ CancelMergeRequest reqId
 
 getBranchStatus :: Server -> Branch -> IO BranchStatus
 getBranchStatus server branch =
