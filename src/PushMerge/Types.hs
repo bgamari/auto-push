@@ -40,14 +40,19 @@ popQueue (Queue (x Seq.:<| xs)) = Just (x, Queue xs)
 appendQueue :: Queue a -> a -> Queue a
 appendQueue (Queue xs) x = Queue $ xs Seq.:|> x
 
+-- | The elements that follow a given element (or 'Nothing' if not queued).
 successors :: (Eq a) => a -> Queue a -> Maybe [a]
-successors x (Queue xs) = go xs
-  where
-    go (y Seq.:<| ys)
-      | x == y    = Just $ toList ys
-      | otherwise = go ys
-    go Seq.Empty  = Nothing
+successors x (Queue xs) =
+    case Seq.breakl (== x) xs of
+      (_, Seq.Empty) -> Nothing
+      (as, _)        -> Just $ toList as
 
+-- | The elements that precede a given element (or 'Nothing' if not queued).
+predecessors :: (Eq a) => a -> Queue a -> Maybe [a]
+predecessors x (Queue xs) =
+    case Seq.breakr (== x) xs of
+      (Seq.Empty, _) -> Nothing
+      (_, as)        -> Just $ toList $ Seq.reverse as
 
 
 -- | A branch which we are responsible for merging into.
