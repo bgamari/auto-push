@@ -181,6 +181,7 @@ data WorkerState = WorkerState { _mergeQueue    :: Queue MergeRequestId
                                , _mergeRequests :: M.Map MergeRequestId MergeRequestState
                                , _failedMerges  :: [MergeRequestId]
                                , _branchHead    :: SHA
+                               , _upstreamHead  :: SHA
                                }
 
 makeLenses ''WorkerState
@@ -213,6 +214,7 @@ branchWorker server branch eventQueue = do
                          , _mergeRequests = mempty
                          , _failedMerges  = []
                          , _branchHead    = head
+                         , _upstreamHead  = head
                          }
     evalStateT (forever go) s0
   where
@@ -230,6 +232,17 @@ branchWorker server branch eventQueue = do
         doEvent <- join $ uses id $ liftIO . atomically . getEvent
         logMsg "have event"
         doEvent
+
+    updateUpstreamHead :: WorkerM ()
+    updateUpstreamHead = do
+        head <- withWorkingDir server $ \repo -> liftIO $ do
+            remoteUpdate repo originRemote
+            resolveRef repo upstreamRef
+        oldHead <- use upstreamHead
+        when (head /= oldHead) $ do
+            logMsg $ "branch HEAD is now "++show head
+            upstreamHead .= head
+            use mergeQueue >>= mapM_ cancelBuild
 
     startPendingBuilds :: WorkerM ()
     startPendingBuilds =
@@ -296,11 +309,12 @@ branchWorker server branch eventQueue = do
                       mzero
               handle tryAgain $
                   liftIO $ updateRefs (serverRepo server)
-                                      [ UpdateRef (branchRef $ upstreamBranch branch) headSha (Just baseSha)
+                                      [ UpdateRef upstreamRef headSha (Just baseSha)
                                       , DeleteRef (toBuildRef reqId) Nothing
                                       , DeleteRef (toOrigRef reqId) Nothing
                                       ]
               lift $ mergeQueue .= rest
+              lift $ upstreamHead .= headSha
               lift $ logMsg $ "Successfully merged "++show reqId
               lift $ mrStatus reqId .= Merged headSha
               lift $ mergeGoodRequests
@@ -333,6 +347,7 @@ branchWorker server branch eventQueue = do
       -- TODO: detect force push
       -- join $ uses mergeQueue $ mapM_ cancelBuild
 
+    upstreamRef = branchRef $ upstreamBranch branch
     mr :: MergeRequestId -> Lens' WorkerState MergeRequestState
     mr i = mergeRequests . singular (ix i)
 
