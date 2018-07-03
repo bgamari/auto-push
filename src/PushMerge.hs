@@ -216,12 +216,14 @@ branchWorker server branch eventQueue = do
                          }
     evalStateT (forever go) s0
   where
+    onException exc = logMsg $ "Exception: "++show exc
+
     go :: WorkerM ()
-    go = do
+    go = handleAll onException $ do
         join $ uses mergeQueue $ \q -> logMsg $ "Merge queue: "++show (toList q)
         q <- use mergeQueue
         logMsg $ "Merge queue: "++show (toList q)
-        Just () <- join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
+        _ <- join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
         mergeGoodRequests
         logMsg "worker waiting"
         doEvent <- join $ uses id $ liftIO . atomically . getEvent
