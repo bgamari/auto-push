@@ -55,10 +55,10 @@ circleCIBuilder token srcRepo commit = bracket_ pushIt deleteIt $ do
   where
     -- Push to GitHub for testing
     pushIt =
-        Git.push srcRepo destRemote (CommitSha commit) (branchRef branch)
+        Git.push srcRepo destRemote True (CommitSha commit) (branchRef branch)
     -- Clean up
     deleteIt =
-        Git.push srcRepo destRemote (CommitRef $ Ref "") (branchRef branch)
+        Git.push srcRepo destRemote True (CommitRef $ Ref "") (branchRef branch)
     destRemote = Git.gitRepoToRemote destRepo
     branch = tempBranch commit
 

@@ -196,11 +196,13 @@ newtype Remote = Remote T.Text
 gitRepoToRemote :: GitRepo -> Remote
 gitRepoToRemote (GitRepo repo) = Remote $ T.pack repo
 
-push :: GitRepo -> Remote -> Commit -> Ref -> IO ()
-push repo (Remote remote) commit ref =
-    void $ runGit repo "push" [ T.unpack remote
-                              , showCommit commit ++ ":" ++ showRef ref
-                              ] ""
+push :: GitRepo -> Remote -> Bool -> Commit -> Ref -> IO ()
+push repo (Remote remote) forced commit ref =
+    void $ runGit repo "push" args ""
+  where
+    args = [ T.unpack remote
+           , showCommit commit ++ ":" ++ showRef ref
+           ] ++ (if forced then ["--force"] else [])
 
 clone :: GitRepo -> FilePath -> IO GitRepo
 clone repo dest = do

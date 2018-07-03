@@ -262,7 +262,7 @@ branchWorker server branch eventQueue = do
                   -- Push rebased commits
                   lift $ logMsg $ show (head', toBuildRef reqId)
                   lift $ logMsg "hello"
-                  liftIO $ Git.push repo originRemote (CommitSha head') (toBuildRef reqId)
+                  liftIO $ Git.push repo originRemote True (CommitSha head') (toBuildRef reqId)
                   lift $ logMsg $ "Pushed rebase "++show reqId++": "++show commits
                   return commits
 
