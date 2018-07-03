@@ -380,12 +380,17 @@ branchWorker server branch eventQueue = do
     cancelBuild reqId = do
         req <- use $ mr reqId
         case req ^. mergeReqStatus of
-          Building _ builder -> do liftIO $ cancel builder
+          Building _ builder -> do liftIO $ cancelWith builder BuildCancelled
           _                  -> return ()
         mrStatus reqId .= PendingBuild
 
     logMsg :: String -> WorkerM ()
     logMsg = liftIO . Utils.logMsg . ("Worker: "++)
+
+data BuildCancelled = BuildCancelled
+                    deriving (Show)
+
+instance Exception BuildCancelled
 
 --------------------------------------------------
 -- Wrappers
