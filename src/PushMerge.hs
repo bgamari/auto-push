@@ -245,7 +245,8 @@ branchWorker server branch eventQueue = do
             use mergeQueue >>= mapM_ cancelBuild
 
     startPendingBuilds :: WorkerM ()
-    startPendingBuilds =
+    startPendingBuilds = do
+        use upstreamHead >>= (branchHead .=)
         void $ join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
 
     startPendingBuild :: MergeRequestId -> MaybeT WorkerM ()
@@ -292,7 +293,10 @@ branchWorker server branch eventQueue = do
                          $ serverStartBuild server branch reqId (headCommit commits)
               lift $ mrStatus reqId .= Building commits builder
               lift $ logMsg $ show reqId++" is now building"
-          _ -> return ()
+          Building (CommitRange _ headCommit) _ -> lift $ branchHead .= headCommit
+          Succeeded (CommitRange _ headCommit) -> lift $ branchHead .= headCommit
+          FailedToBuild{} -> mzero
+          _ -> mzero
 
     mergeGoodRequests :: WorkerM ()
     mergeGoodRequests = void $ runMaybeT $ do
