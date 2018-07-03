@@ -71,7 +71,7 @@ upstreamBranch (ManagedBranch branch) = branch
 
 
 -- | Unique per 'ManagedBranch'.
-newtype MergeRequestId = MergeRequestId Int
+newtype MergeRequestId = MergeRequestId { getMergeRequestId :: Int }
                        deriving (Eq, Ord, Show, Generic)
                        deriving newtype (FromJSON, ToJSON, FromHttpApiData, ToHttpApiData)
 
@@ -107,7 +107,7 @@ data BuildResult = BuildSucceeded
                  deriving anyclass (FromJSON, ToJSON)
 
 -- | Test-build a SHA, returning 'Just' on error or 'Nothing' on success.
-type BuildAction = SHA -> IO BuildResult
+type BuildAction = MergeRequestId -> SHA -> IO BuildResult
 
 
 data BranchRequest a where

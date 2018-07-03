@@ -80,7 +80,7 @@ module PushMerge
 
       -- * Types
     , ManagedBranch
-    , MergeRequestId
+    , MergeRequestId(getMergeRequestId)
 
       -- * Requests
     , BranchNotManagedException(..)
@@ -271,7 +271,7 @@ branchWorker server branch eventQueue = do
                       Utils.logMsg $ show reqId++" failed with exception: "++show exc
                       pure $ BuildFailed $ show exc
               builder <- liftIO $ async $ handleAll handleBuildException
-                         $ serverStartBuild server branch (headCommit commits)
+                         $ serverStartBuild server branch reqId (headCommit commits)
               lift $ mrStatus reqId .= Building commits builder
               lift $ logMsg $ show reqId++" is now building"
           _ -> return ()

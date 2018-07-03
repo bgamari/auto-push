@@ -37,7 +37,7 @@ destRepo = GitRepo $ T.unpack $ "git@github.com:" <> destRepoOwner <> "/" <> des
 circleCIBuilder :: Circle.AccountAPIToken
                 -> GitRepo
                 -> PushMerge.BuildAction
-circleCIBuilder token srcRepo commit = bracket_ pushIt deleteIt $ do
+circleCIBuilder token srcRepo reqId commit = bracket_ pushIt deleteIt $ do
     -- Trigger build
     let buildOpts = Circle.TriggerBuildOptions
                     { triggerBuildTarget = Circle.BuildRevision $ getSHA commit
@@ -60,13 +60,14 @@ circleCIBuilder token srcRepo commit = bracket_ pushIt deleteIt $ do
     deleteIt =
         Git.push srcRepo destRemote True (CommitRef $ Ref "") (branchRef branch)
     destRemote = Git.gitRepoToRemote destRepo
-    branch = tempBranch commit
+    branch = tempBranch reqId
 
 projectPoint :: Circle.ProjectPoint
 projectPoint = Circle.ProjectPoint destRepoOwner destRepoName
 
-tempBranch :: SHA -> Branch
-tempBranch commit = Branch $ "auto-push/test-" <> getSHA commit
+tempBranch :: PushMerge.MergeRequestId -> Branch
+tempBranch reqId =
+    Branch $ "auto-push/test-" <> T.pack (show $ PushMerge.getMergeRequestId reqId)
 
 waitUntilBuildFinishes :: Circle.AccountAPIToken
                        -> Circle.BuildNumber
