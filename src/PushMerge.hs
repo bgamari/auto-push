@@ -285,7 +285,8 @@ branchWorker server branch eventQueue = do
           Succeeded (CommitRange baseSha headSha) -> do
               lift $ logMsg $ "Trying to merge "++show reqId
               let tryAgain :: SomeException -> MaybeT WorkerM ()
-                  tryAgain _ = do
+                  tryAgain exc = do
+                      lift $ logMsg $ "Failed to merge "++show reqId++": "++show exc
                       lift $ mrStatus reqId .= PendingBuild
                       mzero
               handle tryAgain $
