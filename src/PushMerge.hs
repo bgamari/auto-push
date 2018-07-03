@@ -242,13 +242,20 @@ branchWorker server branch eventQueue = do
                   -- Fetch and rebase branch
                   liftIO $ Git.fetch repo originRemote [toOrigRef reqId]
                   lift $ logMsg $ "Fetched"
+
+                  -- Figure out base commit
+                  baseCommit <- liftIO $ mergeBase repo (CommitSha $ baseCommit reqCommits) (CommitSha brHead)
+                  let rebaseRange = CommitRange baseCommit (headCommit reqCommits)
+                  lift $ logMsg $ "Rebasing commits "++show rebaseRange
+
+                  -- Rebase
                   let handleRebaseFail e@GitException{} = do
                           logMsg $ "Failed to rebase "++show reqId++": "++show e
                           liftIO $ Git.abortRebase repo
                           mrStatus reqId .= FailedToRebase brHead
                           return Nothing
                   commits <- MaybeT $ handle handleRebaseFail
-                             $ fmap Just $ liftIO $ Git.rebase repo reqCommits brHead
+                             $ fmap Just $ liftIO $ Git.rebase repo rebaseRange brHead
                   let head' = headCommit commits
                   lift $ logMsg $ "Rebased "++show reqId++": "++show commits
 
