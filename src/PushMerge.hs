@@ -223,12 +223,17 @@ branchWorker server branch eventQueue = do
         join $ uses mergeQueue $ \q -> logMsg $ "Merge queue: "++show (toList q)
         q <- use mergeQueue
         logMsg $ "Merge queue: "++show (toList q)
-        _ <- join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
+        startPendingBuilds
         mergeGoodRequests
+        startPendingBuilds -- we might have marked builds as pending when merging
         logMsg "worker waiting"
         doEvent <- join $ uses id $ liftIO . atomically . getEvent
         logMsg "have event"
         doEvent
+
+    startPendingBuilds :: WorkerM ()
+    startPendingBuilds =
+        void $ join $ uses mergeQueue $ runMaybeT . mapM_ startPendingBuild
 
     startPendingBuild :: MergeRequestId -> MaybeT WorkerM ()
     startPendingBuild reqId = do
@@ -304,13 +309,11 @@ branchWorker server branch eventQueue = do
               logMsg $ "Giving up on "++show reqId++" due to build failure: "++err
               mergeQueue .= rest
               mapM_ cancelBuild rest
-              go
 
           FailedToRebase _ -> lift $ do
               logMsg $ "Giving up on "++show reqId++" due to rebase failure"
               mergeQueue .= rest
               mapM_ cancelBuild rest
-              go
 
           _ -> return ()
 
