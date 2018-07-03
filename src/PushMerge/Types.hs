@@ -45,14 +45,14 @@ successors :: (Eq a) => a -> Queue a -> Maybe [a]
 successors x (Queue xs) =
     case Seq.breakl (== x) xs of
       (_, Seq.Empty) -> Nothing
-      (as, _)        -> Just $ toList as
+      (_, as)        -> Just $ toList as
 
 -- | The elements that precede a given element (or 'Nothing' if not queued).
 predecessors :: (Eq a) => a -> Queue a -> Maybe [a]
 predecessors x (Queue xs) =
     case Seq.breakr (== x) xs of
       (Seq.Empty, _) -> Nothing
-      (_, as)        -> Just $ toList $ Seq.reverse as
+      (as, _)        -> Just $ toList $ Seq.reverse as
 
 
 -- | A branch which we are responsible for merging into.
