@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Exception
+import Control.Monad
 import Data.Monoid
 import Options.Applicative
 
@@ -26,6 +27,4 @@ postReceiveMode = pure $ printError $ postReceive cwdRepo
 
 main :: IO ()
 main = do
-    mode <- execParser $ info (helper <*> modes) mempty
-    mode
-
+    join $ execParser $ info (helper <*> modes) mempty

@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -138,7 +139,9 @@ startServer config = do
 
     return $ Server { serverStartBuild = const $ builder config
                     , serverRepo = repo config
-                    , ..
+                    , serverBranches
+                    , serverNextRequestId
+                    , serverWorkingDirPool
                     }
 
 freshRequestId :: Server -> IO MergeRequestId
@@ -335,7 +338,8 @@ branchWorker server branch eventQueue = do
                               , _mergeReqBranch      = branch
                               }
         return reqId
-    handleBranchRequest (CancelMergeRequest {..}) = cancelBuild cancelMergeReqId
+    handleBranchRequest (CancelMergeRequest {..}) =
+        cancelBuild cancelMergeReqId
     handleBranchRequest (GetBranchStatus{}) =
         BranchStatus
             <$> use branchHead

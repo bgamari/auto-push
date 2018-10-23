@@ -27,7 +27,7 @@ readReceiveRefs = mapMaybe parse . T.lines <$> T.getContents
 preReceive :: GitRepo -> IO ()
 preReceive _ = do
     updates <- readReceiveRefs
-    logMsg $ "pre-recieve: "++show updates
+    logMsg $ "pre-receive: "++show updates
     return ()
 
 postReceive :: GitRepo -> IO ()

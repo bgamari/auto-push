@@ -5,7 +5,7 @@ module Server where
 
 import Control.Monad.IO.Class
 import Control.Monad.Catch
-import qualified Network.Wai.Handler.Warp
+import qualified Network.Wai.Handler.Warp as Warp
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Servant
 import Servant.Client
@@ -77,4 +77,4 @@ runServer config = do
     s <- PushMerge.startServer config
     let app :: Application
         app = serve api (server s)
-    Network.Wai.Handler.Warp.run serverPort app
+    Warp.run serverPort app
