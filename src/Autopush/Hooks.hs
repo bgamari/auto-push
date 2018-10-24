@@ -1,15 +1,21 @@
-module Hooks where
+module Autopush.Hooks
+( postReceive
+, installHooks
+)
+where
 
-import Control.Monad.IO.Class
 import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
-import Servant.Client
-import Server
 import Git
 import Utils
-import PushMerge hiding (newMergeRequest, repo)
+import Autopush.MergeRequest
+import Autopush.MergeBranch
+import Autopush.DB
+import System.Posix.Files
+import Data.Bits ( (.|.) )
+import System.FilePath
 
 -- | Read hook input provided by @git@ to a @post-receive@ or @pre-receive@
 -- hook.
@@ -23,6 +29,22 @@ readReceiveRefs = mapMaybe parse . T.lines <$> T.getContents
       = Just (SHA old, SHA new, Ref ref)
       | otherwise
       = Nothing
+
+installHooks :: GitRepo -> IO ()
+installHooks repo = do
+    -- Create a database
+    initializeRepoDB repo
+    -- Install post-receive hook
+    let hookFn = gitRepoDir repo </> "hooks" </> "post-receive"
+    writeFile
+      hookFn
+      "#!/bin/sh\nauto-push post-receive"
+    setFileMode
+      hookFn
+      ( ownerModes .|.
+        groupReadMode .|. groupExecuteMode .|.
+        otherReadMode .|. otherExecuteMode
+      )
 
 postReceive :: GitRepo -> IO ()
 postReceive repo = do
@@ -38,16 +60,17 @@ postReceive repo = do
     logMsg $ show updates'
     updateRefs repo updates'
 
-    let postMergeRequest :: (SHA, SHA, Ref) -> ClientM ()
+    let postMergeRequest :: (SHA, SHA, Ref) -> IO ()
         postMergeRequest (old, new, ref)
           | Just branch <- isBranch ref
           , Just _ <- isMergeBranch branch = do
-            mergeReqId <- reqNewMergeRequest branch new
-            case mergeReqId of
-              reqId -> liftIO $ putStrLn $ "Reply: "++show reqId
-              --Left BranchNotManaged -> liftIO $ putStrLn $ "Branch "++show ref++" is not managed"
-              --Left CommitHasNoMergeBase -> liftIO $ putStrLn $ "Commit "++show ref++" has no merge base with branch "++show ref
+              mrMay <- withRepoDB repo $ createMergeRequest branch new
+              case mrMay of
+                Just mr ->
+                  putStrLn $ "New merge request: " ++ show (mrID mr)
+                Nothing ->
+                  putStrLn $ "(no merge request created)"
           | otherwise = return ()
 
-    request $ mapM_ postMergeRequest updates
+    mapM_ postMergeRequest updates
     return ()

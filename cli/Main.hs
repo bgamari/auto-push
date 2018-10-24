@@ -6,12 +6,13 @@ import Data.Monoid
 import Options.Applicative
 
 import Git (cwdRepo)
-import Hooks
+import Autopush.Hooks
 
 modes :: Parser (IO ())
-modes = subparser
-     $ command "pre-receive" (info preReceiveMode fullDesc)
-    <> command "post-receive" (info postReceiveMode fullDesc)
+modes =
+  subparser
+    $ command "post-receive" (info postReceiveMode fullDesc)
+    <> command "install" (info installMode fullDesc)
 
 printError :: IO () -> IO ()
 printError = handle printExc
@@ -19,11 +20,11 @@ printError = handle printExc
     printExc :: SomeException -> IO ()
     printExc = print
 
-preReceiveMode :: Parser (IO ())
-preReceiveMode = pure $ printError $ preReceive cwdRepo
-
 postReceiveMode :: Parser (IO ())
-postReceiveMode = pure $ printError $ postReceive cwdRepo
+postReceiveMode = pure . printError $ postReceive cwdRepo
+
+installMode :: Parser (IO ())
+installMode = pure . printError $ installHooks cwdRepo
 
 main :: IO ()
 main = do

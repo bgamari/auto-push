@@ -31,8 +31,6 @@ data MergeRequest
         -- ^ What this MR is currently rebased on.
       , mrBranch :: Branch
         -- ^ Branch name
-      , mrOriginalBase :: SHA
-        -- ^ SHA of the original branch merge base
       , mrOriginalHead :: SHA
         -- ^ SHA of the original branch head
       , mrCurrentHead :: SHA
@@ -44,36 +42,36 @@ data MergeRequest
 
 -- | What a MR is rebased onto.
 data RebaseStatus
-  = NoBase -- ^ not rebased yet
-  | RebasedDeps -- ^ rebased optimistically, onto a dependency
-  | RebasedMaster -- ^ rebased onto master
+  = NotRebased
+  | Rebased
+  | RebaseFailed
   deriving (Show, Read, Eq, Ord, Enum, Bounded)
 
 instance Convertible RebaseStatus SqlValue where
-  safeConvert NoBase = pure $ SqlString "none"
-  safeConvert RebasedDeps = pure $ SqlString "deps"
-  safeConvert RebasedMaster = pure $ SqlString "master"
+  safeConvert NotRebased = pure $ SqlInt32 0
+  safeConvert Rebased = pure $ SqlInt32 1
+  safeConvert RebaseFailed = pure $ SqlInt32 (-1)
 
 instance Convertible SqlValue RebaseStatus where
-  safeConvert (SqlByteString str) =
-    safeConvert (SqlString $ UTF8.toString str)
-  safeConvert (SqlString "none") = pure NoBase
-  safeConvert (SqlString "deps") = pure RebasedDeps
-  safeConvert (SqlString "master") = pure RebasedMaster
-  safeConvert x = convError "Invalid RebaseStatus" x
+  safeConvert sql = do
+    i :: Integer <- safeConvert sql
+    if i == 0 then
+      pure NotRebased
+    else if i < 0 then
+      pure RebaseFailed
+    else
+      pure Rebased
 
 -- | Build status of a MR
 data BuildStatus
   = Runnable -- ^ No build started yet
   | Running -- ^ Build running
   | Passed -- ^ Build has passed
-  | FailedRebase -- ^ Failed to rebase
   | FailedBuild -- ^ Failed to build
   | FailedDeps -- ^ A dependency failed to build
   deriving (Show, Read, Eq, Ord, Enum, Bounded)
 
 isFailedStatus :: BuildStatus -> Bool
-isFailedStatus FailedRebase = True
 isFailedStatus FailedBuild = True
 isFailedStatus FailedDeps = True
 isFailedStatus _ = False

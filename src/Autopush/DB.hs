@@ -6,9 +6,13 @@
 -- | Database manipulations.
 module Autopush.DB
 ( withDB
+, withRepoDB
 , initializeDB
+, initializeRepoDB
 , createMergeRequest
 , updateMergeRequest
+, reparentMergeRequest
+, bailMergeRequest
 , getMergeRequest
 , getActionableMergeRequests
 , getMergeRequestEffectiveStatus
@@ -24,7 +28,10 @@ import Control.Monad (when)
 import System.FilePath
 
 import Autopush.MergeRequest
-import Git ( SHA(..), Branch (..) )
+import Git ( SHA(..), Branch (..), GitRepo (..))
+
+withRepoDB :: GitRepo -> (SQLite.Connection -> IO a) -> IO a
+withRepoDB g = withDB (gitRepoDir g)
 
 -- | Transactionally run some database code against an autopush database in
 -- the indicated directory.
@@ -34,6 +41,9 @@ withDB dirname action = do
     (SQLite.connectSqlite3 $ dirname </> "autopush.sqlite3")
     HDBC.disconnect
     (flip HDBC.withTransaction action)
+
+initializeRepoDB :: GitRepo -> IO ()
+initializeRepoDB g = initializeDB (gitRepoDir g)
 
 -- | Set up an initial database schema.
 initializeDB :: FilePath -> IO ()
@@ -50,20 +60,13 @@ initializeDB dirname = withDB dirname $ \conn ->
 [yesh1|
   -- name:createMergeRequest_ :: rowcount Integer
   -- :branch :: Branch
-  -- :base :: SHA
   -- :head :: SHA
   INSERT INTO merge_requests
-    ( branch, orig_base, orig_head, current_head, parent )
+    ( branch, orig_head, current_head )
     VALUES
     ( :branch
-    , :base
     , :head
     , :head
-    , ( SELECT id FROM merge_requests
-        WHERE merged = 0
-        ORDER BY id DESC
-        LIMIT 1
-      )
     )
 |]
 
@@ -71,7 +74,7 @@ initializeDB dirname = withDB dirname $ \conn ->
 [yesh1|
   -- name:getMergeRequest :: MergeRequest
   -- :mrID :: MergeRequestID
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
     FROM merge_requests
     WHERE id = :mrID
 |]
@@ -80,30 +83,68 @@ initializeDB dirname = withDB dirname $ \conn ->
 [yesh1|
   -- name:getMergeRequestParent :: MergeRequest
   -- :m :: MergeRequest
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
     FROM merge_requests
     WHERE id = :m.mrParent
 |]
 
--- | Get the newest active merge request. This should give the same result as
--- what 'createMergeRequest_' auto-assigns as the parent when inserting a new
--- request.
+-- | Get the newest active merge request. The resulting merge request is the
+-- one that should become the dependency of the next merge request to be
+-- scheduled for rebasing and building.
 [yesh1|
   -- name:getNewestActiveMergeRequest :: MergeRequest
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
     FROM merge_requests
     WHERE merged = 0
+      AND rebased > 0
     ORDER BY id DESC
     LIMIT 1
 |]
 
+-- | Low-level reparenting.
+[yesh1|
+  -- name:reparentMergeRequest_ :: rowcount Integer
+  -- :m :: MergeRequest
+  UPDATE merge_requests
+  SET parent =
+        ( SELECT id
+          FROM merge_requests
+            WHERE merged = 0 AND rebased > 0
+            ORDER BY id DESC LIMIT 1
+        )
+    , merged = 0
+  WHERE id = :m.mrID
+  AND :m.mrParent IS NULL
+  LIMIT 1
+|]
+
+-- | Reparenting. This will find the newest active merge request, and
+-- make the given one depend on it.
+reparentMergeRequest :: MergeRequest -> SQLite.Connection -> IO MergeRequest
+reparentMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
+  rowcount <- reparentMergeRequest_ m conn
+  when (rowcount /= 1) (error "Failed to reparent merge request")
+  getMergeRequest (mrID m) conn >>= maybe (error "Updated merge request does not exist") pure
+
 -- | Create a new merge request for a given SHA.
-createMergeRequest :: Branch -> SHA -> SHA -> SQLite.Connection -> IO (Maybe MergeRequest)
-createMergeRequest branch head base conn = HDBC.withTransaction conn $ \conn -> do
-  rowcount <- createMergeRequest_ branch head base conn
+createMergeRequest :: Branch -> SHA -> SQLite.Connection -> IO (Maybe MergeRequest)
+createMergeRequest branch head conn = HDBC.withTransaction conn $ \conn -> do
+  rowcount <- createMergeRequest_ branch head conn
   when (rowcount /= 1) (error "Insert failed")
   insertID <- maybe (error "Failed to get inserted ID") pure =<< lastMergeRequestID_ conn
   getMergeRequest insertID conn
+
+-- | Reset a merge request to \"pristine\" state (as if it had just been
+-- created).
+[yesh1|
+  -- name:bailMergeRequest :: rowcount Integer
+  -- :m :: MergeRequest
+  UPDATE merge_requests
+  SET parent = NULL
+    , merged = 0
+  WHERE id = :m.mrID
+  LIMIT 1
+|]
 
 [yesh1|
   -- name:updateMergeRequest_ :: rowcount Integer
@@ -112,7 +153,6 @@ createMergeRequest branch head base conn = HDBC.withTransaction conn $ \conn -> 
     SET parent = :m.mrParent
       , status = :m.mrBuildStatus
       , rebased = :m.mrRebased
-      , orig_base = :m.mrOriginalBase
       , orig_head = :m.mrOriginalHead
       , current_head = :m.mrCurrentHead
       , merged = :m.mrMerged
@@ -128,7 +168,7 @@ updateMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
 
 [yesh1|
   -- name:getActionableMergeRequests :: [MergeRequest]
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
     FROM merge_requests
     WHERE merged = 0
 |]

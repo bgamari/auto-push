@@ -56,7 +56,7 @@ import Utils
 
 -- | A local git repository.
 
-newtype GitRepo = GitRepo FilePath
+newtype GitRepo = GitRepo { gitRepoDir :: FilePath }
                 deriving (Show)
 -- TODO: This would be better-named WorkingDir or LocalGitRepo.
 
