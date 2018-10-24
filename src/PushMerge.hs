@@ -126,17 +126,35 @@ data ServerConfig = ServerConfig { repo :: GitRepo
                                  , builder :: BuildAction
                                  }
 
+-- | Server context.
+data Server =
+  Server
+    { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest))
+    , serverNextRequestId  :: TVar MergeRequestId
+      -- ^ key generator for merge request IDs.
+    , serverStartBuild     :: ManagedBranch -> BuildAction
+      -- ^ action to run to kick off a build
+    , serverRepo           :: GitRepo
+      -- ^ location of the \'master\' clone
+    , serverWorkingDirPool :: TVar [GitRepo]
+      -- ^ currently available working copies; workers will pick from this
+      -- list when starting a build or merge.
+    }
+
+-- | Start a new push/merge server. This will also create a pool of temporary
+-- working copies that the workers will then use to manage rebases, merges,
+-- and builds.
 startServer :: ServerConfig -> IO Server
 startServer config = do
-    serverBranches <- newTVarIO mempty
-    serverNextRequestId <- newTVarIO (MergeRequestId 0)
-
     -- Create some working directories for our pool
     temp <- getTemporaryDirectory
     workingDirs <- replicateM 3 $ do
         dir <- createTempDirectory temp "repo"
         Git.clone (repo config) dir
+
     serverWorkingDirPool <- newTVarIO workingDirs
+    serverBranches <- newTVarIO mempty
+    serverNextRequestId <- newTVarIO (MergeRequestId 0)
 
     return $ Server { serverStartBuild = const $ builder config
                     , serverRepo = repo config
@@ -166,24 +184,19 @@ withWorkingDir server action = do
     release dir = liftIO $ atomically $ modifyTVar pool (dir:)
 
 
-data Server = Server { serverBranches       :: TVar (M.Map ManagedBranch (RpcChan BranchRequest))
-                     , serverNextRequestId  :: TVar MergeRequestId
-                     , serverStartBuild     :: ManagedBranch -> BuildAction
-                     , serverRepo           :: GitRepo
-                     , serverWorkingDirPool :: TVar [GitRepo]
-                     }
-
 --------------------------------------------------
 -- Branch worker
 --------------------------------------------------
 
 type WorkerM = StateT WorkerState IO
 
-data WorkerState = WorkerState { _mergeQueue    :: Queue MergeRequestId
-                               , _mergeRequests :: M.Map MergeRequestId MergeRequestState
-                               , _failedMerges  :: [MergeRequestId]
-                               , _branchHead    :: SHA
-                               }
+data WorkerState =
+  WorkerState
+    { _mergeQueue    :: Queue MergeRequestId
+    , _mergeRequests :: M.Map MergeRequestId MergeRequestState
+    , _failedMerges  :: [MergeRequestId]
+    , _branchHead    :: SHA
+    }
 
 makeLenses ''WorkerState
 
