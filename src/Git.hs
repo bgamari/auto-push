@@ -2,6 +2,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Git
@@ -43,6 +45,9 @@ import Prelude hiding (head)
 
 import qualified Data.Text as T
 import System.Process
+
+import Database.HDBC (SqlValue)
+import Data.Convertible (Convertible (..))
 
 import qualified Network.URI as URI
 import Data.Aeson
@@ -123,6 +128,12 @@ newtype SHA = SHA { getSHA :: T.Text }
             deriving (Show, Eq, Ord)
             deriving newtype (ToJSON, FromJSON, FromHttpApiData, ToHttpApiData)
 
+instance Convertible SHA SqlValue where
+  safeConvert = safeConvert . getSHA
+
+instance Convertible SqlValue SHA where
+  safeConvert = fmap SHA . safeConvert
+
 newtype Ref = Ref { getRef :: T.Text }
             deriving (Show, Eq, Ord)
             deriving newtype (ToJSON, FromJSON)
@@ -136,6 +147,12 @@ instance ToHttpApiData Ref where
 newtype Branch = Branch { getBranchName :: T.Text }
             deriving (Show, Eq, Ord)
             deriving newtype (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
+
+instance Convertible Branch SqlValue where
+  safeConvert = safeConvert . getBranchName
+
+instance Convertible SqlValue Branch where
+  safeConvert = fmap Branch . safeConvert
 
 instance FromHttpApiData Branch where
     parseUrlPiece = Right . Branch . T.pack . URI.unEscapeString . T.unpack
