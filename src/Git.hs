@@ -34,6 +34,8 @@ module Git
     , remoteUpdate
       -- * Exceptions
     , GitException(..)
+      -- * Raw access
+    , runGit
     ) where
 
 import Data.Semigroup

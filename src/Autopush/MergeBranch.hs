@@ -4,6 +4,9 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Autopush.MergeBranch
 where
 
@@ -12,6 +15,8 @@ import GHC.Generics
 import Data.Semigroup
 import qualified Data.Text as Text
 import Data.Aeson (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
+import Data.Convertible (Convertible, safeConvert, convError)
+import Database.HDBC (SqlValue)
 
 -- | A branch which we are responsible for merging into.
 newtype ManagedBranch =
@@ -28,3 +33,10 @@ isMergeBranch (Branch ref) = ManagedBranch . Branch <$> Text.stripPrefix "merge/
 -- | The name of the branch which we pull merge requests from
 mergeBranch :: ManagedBranch -> Branch
 mergeBranch (ManagedBranch branch) = Branch $ "merge/" <> getBranchName branch
+
+instance Convertible ManagedBranch SqlValue where
+  safeConvert = safeConvert . upstreamBranch
+
+instance Convertible SqlValue ManagedBranch where
+  safeConvert = fmap ManagedBranch . safeConvert
+

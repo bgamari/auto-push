@@ -28,6 +28,7 @@ import Control.Monad (when)
 import System.FilePath
 
 import Autopush.MergeRequest
+import Autopush.MergeBranch
 import Git ( SHA(..), Branch (..), GitRepo (..))
 
 withRepoDB :: GitRepo -> (SQLite.Connection -> IO a) -> IO a
@@ -59,7 +60,7 @@ initializeDB dirname = withDB dirname $ \conn ->
 -- | Low-level create a 'MergeRequest'. Automatically assigns parent.
 [yesh1|
   -- name:createMergeRequest_ :: rowcount Integer
-  -- :branch :: Branch
+  -- :branch :: ManagedBranch
   -- :head :: SHA
   INSERT INTO merge_requests
     ( branch, orig_head, current_head )
@@ -74,7 +75,7 @@ initializeDB dirname = withDB dirname $ \conn ->
 [yesh1|
   -- name:getMergeRequest :: MergeRequest
   -- :mrID :: MergeRequestID
-  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
     FROM merge_requests
     WHERE id = :mrID
 |]
@@ -83,7 +84,7 @@ initializeDB dirname = withDB dirname $ \conn ->
 [yesh1|
   -- name:getMergeRequestParent :: MergeRequest
   -- :m :: MergeRequest
-  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
     FROM merge_requests
     WHERE id = :m.mrParent
 |]
@@ -93,7 +94,7 @@ initializeDB dirname = withDB dirname $ \conn ->
 -- scheduled for rebasing and building.
 [yesh1|
   -- name:getNewestActiveMergeRequest :: MergeRequest
-  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
     FROM merge_requests
     WHERE merged = 0
       AND rebased > 0
@@ -107,10 +108,19 @@ initializeDB dirname = withDB dirname $ \conn ->
   -- :m :: MergeRequest
   UPDATE merge_requests
   SET parent =
-        ( SELECT id
-          FROM merge_requests
-            WHERE merged = 0 AND rebased > 0
-            ORDER BY id DESC LIMIT 1
+        (
+          SELECT id
+            FROM merge_requests p
+              WHERE merged = 0
+                AND rebased > 0
+                AND branch = :m.mrBranch
+                AND NOT EXISTS
+                  (
+                    SELECT 1
+                      FROM merge_requests c
+                      WHERE c.parent = p.id
+                  )
+              ORDER BY id DESC LIMIT 1
         )
     , merged = 0
   WHERE id = :m.mrID
@@ -127,7 +137,7 @@ reparentMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
   getMergeRequest (mrID m) conn >>= maybe (error "Updated merge request does not exist") pure
 
 -- | Create a new merge request for a given SHA.
-createMergeRequest :: Branch -> SHA -> SQLite.Connection -> IO (Maybe MergeRequest)
+createMergeRequest :: ManagedBranch -> SHA -> SQLite.Connection -> IO (Maybe MergeRequest)
 createMergeRequest branch head conn = HDBC.withTransaction conn $ \conn -> do
   rowcount <- createMergeRequest_ branch head conn
   when (rowcount /= 1) (error "Insert failed")
@@ -153,6 +163,7 @@ createMergeRequest branch head conn = HDBC.withTransaction conn $ \conn -> do
     SET parent = :m.mrParent
       , status = :m.mrBuildStatus
       , rebased = :m.mrRebased
+      , orig_base = :m.mrOriginalBase
       , orig_head = :m.mrOriginalHead
       , current_head = :m.mrCurrentHead
       , merged = :m.mrMerged
@@ -168,7 +179,7 @@ updateMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
 
 [yesh1|
   -- name:getActionableMergeRequests :: [MergeRequest]
-  SELECT id, parent, status, rebased, branch, orig_head, current_head, merged
+  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
     FROM merge_requests
     WHERE merged = 0
 |]

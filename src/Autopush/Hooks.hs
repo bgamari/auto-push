@@ -63,8 +63,8 @@ postReceive repo = do
     let postMergeRequest :: (SHA, SHA, Ref) -> IO ()
         postMergeRequest (old, new, ref)
           | Just branch <- isBranch ref
-          , Just _ <- isMergeBranch branch = do
-              mrMay <- withRepoDB repo $ createMergeRequest branch new
+          , Just mbranch <- isMergeBranch branch = do
+              mrMay <- withRepoDB repo $ createMergeRequest mbranch new
               case mrMay of
                 Just mr ->
                   putStrLn $ "New merge request: " ++ show (mrID mr)

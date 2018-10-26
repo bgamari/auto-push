@@ -4,10 +4,15 @@ module Autopush.Tests.DB
 )
 where
 
-import Test.Tasty
-import Test.Tasty.HUnit
 import Autopush.DB
 import Autopush.MergeRequest
+import Autopush.MergeBranch
+
+import Autopush.Tests.Helpers
+
+import Test.Tasty
+import Test.Tasty.HUnit
+
 import System.Directory
 import System.IO.Temp
 import Control.Exception (bracket)
@@ -26,15 +31,9 @@ tests =
     , testCreateDependentMRSkipOther
     ]
 
-withTempDB :: (SQLite.Connection -> IO a) -> IO a
-withTempDB action =
-  withSystemTempDirectory "autopush-test" $ \dir -> do
-    initializeDB dir
-    withDB dir action
-
 testCreateMR :: TestTree
 testCreateMR = testCase "create merge request" $ withTempDB $ \conn -> do
-  let branch = Branch "wip/hello"
+  let branch = ManagedBranch $ Branch "merge/hello"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       expected =
         Just
@@ -44,6 +43,7 @@ testCreateMR = testCase "create merge request" $ withTempDB $ \conn -> do
             , mrBuildStatus = Runnable
             , mrRebased = NotRebased
             , mrBranch = branch
+            , mrOriginalBase = Nothing
             , mrOriginalHead = head1
             , mrCurrentHead = head1
             , mrMerged = NotMerged
@@ -53,7 +53,7 @@ testCreateMR = testCase "create merge request" $ withTempDB $ \conn -> do
 
 testUpdateMR :: TestTree
 testUpdateMR = testCase "update merge request" $ withTempDB $ \conn -> do
-  let branch = Branch "wip/hello"
+  let branch = ManagedBranch $ Branch "merge/hello"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       head2 = SHA "4cbd040533a2f43fc6691d773d510cda70f4126a"
       m =
@@ -63,6 +63,7 @@ testUpdateMR = testCase "update merge request" $ withTempDB $ \conn -> do
           , mrBuildStatus = Passed
           , mrRebased = Rebased
           , mrBranch = branch
+          , mrOriginalBase = Nothing
           , mrOriginalHead = head1
           , mrCurrentHead = head2
           , mrMerged = Merged
@@ -75,7 +76,7 @@ testUpdateMR = testCase "update merge request" $ withTempDB $ \conn -> do
 
 testCreateDependentMR :: TestTree
 testCreateDependentMR = testCase "create dependent merge request" $ withTempDB $ \conn -> do
-  let branch = Branch "wip/hello"
+  let branch = ManagedBranch $ Branch "merge/hello"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       head2 = SHA "4cbd040533a2f43fc6691d773d510cda70f4126a"
       expected =
@@ -85,11 +86,12 @@ testCreateDependentMR = testCase "create dependent merge request" $ withTempDB $
           , mrBuildStatus = Runnable
           , mrRebased = NotRebased
           , mrBranch = branch
+          , mrOriginalBase = Nothing
           , mrOriginalHead = head1
           , mrCurrentHead = head1
           , mrMerged = NotMerged
           }
-  Just m <- createMergeRequest (Branch "wip/world") head2 conn
+  Just m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrRebased = Rebased } conn
   Just m <- createMergeRequest branch head1 conn
   actual <- reparentMergeRequest m conn
@@ -97,7 +99,7 @@ testCreateDependentMR = testCase "create dependent merge request" $ withTempDB $
 
 testCreateDependentMRSkip :: TestTree
 testCreateDependentMRSkip = testCase "create dependent merge request (skip one)" $ withTempDB $ \conn -> do
-  let branch = Branch "wip/hello"
+  let branch = ManagedBranch $ Branch "merge/hello"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       head2 = SHA "4cbd040533a2f43fc6691d773d510cda70f4126a"
       head3 = SHA "f572d396fae9206628714fb2ce00f72e94f2258f"
@@ -108,13 +110,14 @@ testCreateDependentMRSkip = testCase "create dependent merge request (skip one)"
           , mrBuildStatus = Runnable
           , mrRebased = NotRebased
           , mrBranch = branch
+          , mrOriginalBase = Nothing
           , mrOriginalHead = head1
           , mrCurrentHead = head1
           , mrMerged = NotMerged
           }
-  Just m <- createMergeRequest (Branch "wip/world") head2 conn
+  Just m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrRebased = Rebased } conn
-  Just m <- createMergeRequest (Branch "wip/stuff") head3 conn
+  Just m <- createMergeRequest branch head3 conn
   updateMergeRequest m { mrMerged = Merged } conn
   Just m <- createMergeRequest branch head1 conn
   actual <- reparentMergeRequest m conn
@@ -122,7 +125,7 @@ testCreateDependentMRSkip = testCase "create dependent merge request (skip one)"
 
 testCreateDependentMRSkipOther :: TestTree
 testCreateDependentMRSkipOther = testCase "create dependent merge request (skip other)" $ withTempDB $ \conn -> do
-  let branch = Branch "wip/hello"
+  let branch = ManagedBranch $ Branch "merge/hello"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       head2 = SHA "4cbd040533a2f43fc6691d773d510cda70f4126a"
       head3 = SHA "f572d396fae9206628714fb2ce00f72e94f2258f"
@@ -133,13 +136,14 @@ testCreateDependentMRSkipOther = testCase "create dependent merge request (skip 
           , mrBuildStatus = Runnable
           , mrRebased = NotRebased
           , mrBranch = branch
+          , mrOriginalBase = Nothing
           , mrOriginalHead = head1
           , mrCurrentHead = head1
           , mrMerged = NotMerged
           }
-  Just m <- createMergeRequest (Branch "wip/world") head2 conn
+  Just m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrMerged = Merged } conn
-  Just m <- createMergeRequest (Branch "wip/stuff") head3 conn
+  Just m <- createMergeRequest branch head3 conn
   updateMergeRequest m { mrRebased = Rebased } conn
   Just m <- createMergeRequest branch head1 conn
   actual <- reparentMergeRequest m conn
@@ -147,7 +151,7 @@ testCreateDependentMRSkipOther = testCase "create dependent merge request (skip 
 
 testGetActionableMR :: TestTree
 testGetActionableMR = testCase "get actionable MRs" $ withTempDB $ \conn -> do
-  let branch = Branch "wip/hello"
+  let branch = ManagedBranch $ Branch "merge/hello"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       expected =
         [ MergeRequest
@@ -156,6 +160,7 @@ testGetActionableMR = testCase "get actionable MRs" $ withTempDB $ \conn -> do
             , mrBuildStatus = Runnable
             , mrRebased = NotRebased
             , mrBranch = branch
+            , mrOriginalBase = Nothing
             , mrOriginalHead = head1
             , mrCurrentHead = head1
             , mrMerged = NotMerged
@@ -167,8 +172,8 @@ testGetActionableMR = testCase "get actionable MRs" $ withTempDB $ \conn -> do
 
 testGetActionableMRFilter :: TestTree
 testGetActionableMRFilter = testCase "get actionable MRs (skip non-actionable)" $ withTempDB $ \conn -> do
-  let branch = Branch "wip/hello"
-      otherBranch = Branch "wip/world"
+  let branch = ManagedBranch $ Branch "hello"
+      otherBranch = ManagedBranch $ Branch "world"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       head2 = SHA "4cbd040533a2f43fc6691d773d510cda70f4126a"
       expected =
@@ -178,6 +183,7 @@ testGetActionableMRFilter = testCase "get actionable MRs (skip non-actionable)" 
             , mrBuildStatus = Runnable
             , mrRebased = NotRebased
             , mrBranch = branch
+            , mrOriginalBase = Nothing
             , mrOriginalHead = head1
             , mrCurrentHead = head1
             , mrMerged = NotMerged

@@ -17,6 +17,8 @@ import Database.YeshQL.HDBC.SqlRow.TH (makeSqlRow)
 import Database.YeshQL.HDBC.SqlRow.Class (SqlRow)
 import Data.ByteString.UTF8 as UTF8
 
+import Autopush.MergeBranch
+
 type MergeRequestID = Integer
 
 -- | Represent a merge request and its current processing status.
@@ -29,8 +31,10 @@ data MergeRequest
         -- ^ Own build status. Note that parent build status is implicit.
       , mrRebased :: RebaseStatus
         -- ^ What this MR is currently rebased on.
-      , mrBranch :: Branch
+      , mrBranch :: ManagedBranch
         -- ^ Branch name
+      , mrOriginalBase :: Maybe SHA
+        -- ^ SHA of the original base commit
       , mrOriginalHead :: SHA
         -- ^ SHA of the original branch head
       , mrCurrentHead :: SHA
