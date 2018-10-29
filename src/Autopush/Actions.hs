@@ -218,10 +218,6 @@ checkBuild reqId = do
         -- It's runnable, let's run it
         startBuild reqId
 
-      (_, Nothing) -> do
-        -- No idea what's going on here; log & skip
-        liftIO $ logMsg $ "No build found for MR " ++ show reqId
-
       (Running, Just buildID) -> do
         -- Already running, check status
         check <- view $ buildDriver . buildStatus
@@ -229,44 +225,69 @@ checkBuild reqId = do
         case newStatus of
           FailedBuild -> do
             handleFailedBuild m conn
+          Passed -> do
+            handlePassedBuild m conn
           _ ->
             return ()
+
+      (Running, Nothing) -> do
+        -- No idea what's going on here; log & skip
+        liftIO $ logMsg $ "No build found for MR " ++ show reqId
+
+      (Passed, _) -> do
+        checkMergeableBuild m conn
 
       _ ->
         return ()
 
+checkMergeableBuild :: MergeRequest -> SQLite.Connection -> Action ()
+checkMergeableBuild m conn = do
+  pMay <- liftIO $ getMergeRequestParent m conn
+  case pMay of
+    Nothing ->
+      mergeGoodRequest m conn
+    Just p ->
+      if mrMerged p == Merged then
+        mergeGoodRequest m conn
+      else
+        return ()
+
+handlePassedBuild :: MergeRequest -> SQLite.Connection -> Action ()
+handlePassedBuild m conn = do
+  liftIO $ updateMergeRequest
+    m { mrBuildStatus = Passed
+      , mrBuildID = Nothing
+      }
+    conn
+
 handleFailedBuild :: MergeRequest -> SQLite.Connection -> Action ()
 handleFailedBuild m conn = do
+  cancelBuild <- view $ buildDriver . buildCancel
   let go :: MergeRequest -> BuildStatus -> Action ()
       go m newStatus = do
         liftIO $
           updateMergeRequest
             m { mrParent = Nothing
               , mrBuildStatus = newStatus
+              , mrBuildID = Nothing
               }
             conn
         -- recurse if children exist
         liftIO (getMergeRequestChild m conn) >>= \case
           Nothing -> return ()
           Just p -> do
-            -- TODO cancel build p
+            liftIO $ maybe (return ()) cancelBuild (mrBuildID p)
             go p FailedDeps
   go m FailedBuild
 
--- - bail:
---    - cancel CI build, if any
---    - reset to pristine state
---
--- - check on an active MR:
---    - check parent
---        - if parent failed or bailed:
---            - bail
---    - if running:
---        - get build status from CI
---            - if failed:
---                - mark failed
---            - if passed:
---                - mark passed
---    - if passed:
---        - if parent passed:
---            - merge
+mergeGoodRequest :: MergeRequest -> SQLite.Connection -> Action ()
+mergeGoodRequest m conn = do
+  withGitServer $ \repo -> liftIO $ do
+    updateRefs repo
+      [ UpdateRef (branchRef . upstreamBranch $ mrBranch m) (mrCurrentHead m) Nothing -- (Just baseSha)
+      , DeleteRef (toBuildRef $ mrID m) Nothing
+      , DeleteRef (toOrigRef $ mrID m) Nothing
+      ]
+    updateMergeRequest
+      m { mrMerged = Merged }
+      conn
