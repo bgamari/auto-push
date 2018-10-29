@@ -7,6 +7,8 @@
 module Autopush.DB
 ( withDB
 , withRepoDB
+, withTransaction
+, transactionally
 , initializeDB
 , initializeRepoDB
 , createMergeRequest
@@ -14,16 +16,20 @@ module Autopush.DB
 , reparentMergeRequest
 , bailMergeRequest
 , getMergeRequest
+, getExistingMergeRequest
+, getMergeRequestParent
+, getMergeRequestChild
 , getActionableMergeRequests
 , getMergeRequestEffectiveStatus
 )
 where
 
 import qualified Database.HDBC as HDBC
+import Database.HDBC (withTransaction)
 import qualified Database.HDBC.Sqlite3 as SQLite
 import Data.FileEmbed (embedStringFile)
 import Database.YeshQL.HDBC (yesh, yesh1)
-import Control.Exception (bracket)
+import Control.Exception (bracket, Exception, throw)
 import Control.Monad (when)
 import System.FilePath
 
@@ -31,17 +37,28 @@ import Autopush.MergeRequest
 import Autopush.MergeBranch
 import Git ( SHA(..), Branch (..), GitRepo (..))
 
+data RowNotFoundException = RowNotFoundException
+  deriving (Show)
+
+instance Exception RowNotFoundException where
+
+assertRow :: IO (Maybe a) -> IO a
+assertRow = (maybe (throw RowNotFoundException) return =<<)
+
+transactionally :: (SQLite.Connection -> IO a) -> SQLite.Connection -> IO a
+transactionally = flip withTransaction
+
 withRepoDB :: GitRepo -> (SQLite.Connection -> IO a) -> IO a
 withRepoDB g = withDB (gitRepoDir g)
 
--- | Transactionally run some database code against an autopush database in
+-- | Run some database code against an autopush database in
 -- the indicated directory.
 withDB :: FilePath -> (SQLite.Connection -> IO a) -> IO a
 withDB dirname action = do
   bracket
     (SQLite.connectSqlite3 $ dirname </> "autopush.sqlite3")
     HDBC.disconnect
-    (flip HDBC.withTransaction action)
+    action
 
 initializeRepoDB :: GitRepo -> IO ()
 initializeRepoDB g = initializeDB (gitRepoDir g)
@@ -49,6 +66,7 @@ initializeRepoDB g = initializeDB (gitRepoDir g)
 -- | Set up an initial database schema.
 initializeDB :: FilePath -> IO ()
 initializeDB dirname = withDB dirname $ \conn ->
+  withTransaction conn $ \conn ->
   HDBC.runRaw conn $(embedStringFile "schema.sql")
 
 -- | Fetch the last insert-ID (SQLite-ism)
@@ -89,6 +107,10 @@ initializeDB dirname = withDB dirname $ \conn ->
     WHERE id = :mrID
 |]
 
+getExistingMergeRequest :: MergeRequestID -> SQLite.Connection -> IO MergeRequest
+getExistingMergeRequest mid conn =
+  assertRow $ getMergeRequest mid conn
+
 -- | Get a 'MergeRequest's parent.
 [yesh1|
   -- name:getMergeRequestParent :: MergeRequest
@@ -105,6 +127,24 @@ initializeDB dirname = withDB dirname $ \conn ->
        , build_id
     FROM merge_requests
     WHERE id = :m.mrParent
+|]
+
+-- | Get a 'MergeRequest's child.
+[yesh1|
+  -- name:getMergeRequestChild :: MergeRequest
+  -- :m :: MergeRequest
+  SELECT id
+       , parent
+       , status
+       , rebased
+       , branch
+       , orig_base
+       , orig_head
+       , current_head
+       , merged
+       , build_id
+    FROM merge_requests
+    WHERE parent = :m.mrID
 |]
 
 -- | Get the newest active merge request. The resulting merge request is the
@@ -158,14 +198,14 @@ initializeDB dirname = withDB dirname $ \conn ->
 -- | Reparenting. This will find the newest active merge request, and
 -- make the given one depend on it.
 reparentMergeRequest :: MergeRequest -> SQLite.Connection -> IO MergeRequest
-reparentMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
+reparentMergeRequest m conn = do
   rowcount <- reparentMergeRequest_ m conn
   when (rowcount /= 1) (error "Failed to reparent merge request")
   getMergeRequest (mrID m) conn >>= maybe (error "Updated merge request does not exist") pure
 
 -- | Create a new merge request for a given SHA.
 createMergeRequest :: ManagedBranch -> SHA -> SQLite.Connection -> IO (Maybe MergeRequest)
-createMergeRequest branch head conn = HDBC.withTransaction conn $ \conn -> do
+createMergeRequest branch head conn = do
   rowcount <- createMergeRequest_ branch head conn
   when (rowcount /= 1) (error "Insert failed")
   insertID <- maybe (error "Failed to get inserted ID") pure =<< lastMergeRequestID_ conn
@@ -200,7 +240,7 @@ createMergeRequest branch head conn = HDBC.withTransaction conn $ \conn -> do
 |]
 
 updateMergeRequest :: MergeRequest -> SQLite.Connection -> IO ()
-updateMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
+updateMergeRequest m conn = do
   rowcount <- updateMergeRequest_ m conn
   when (rowcount /= 1) (error "Update failed, merge request may not exist")
   return ()
@@ -222,7 +262,7 @@ updateMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
 |]
 
 getMergeRequestEffectiveStatus :: MergeRequest -> SQLite.Connection -> IO BuildStatus
-getMergeRequestEffectiveStatus m conn = HDBC.withTransaction conn $ \conn -> go m
+getMergeRequestEffectiveStatus m conn = go m
   where
     go m
       | isFailedStatus (mrBuildStatus m) =

@@ -64,7 +64,7 @@ postReceive repo = do
         postMergeRequest (old, new, ref)
           | Just branch <- isBranch ref
           , Just mbranch <- isMergeBranch branch = do
-              mrMay <- withRepoDB repo $ createMergeRequest mbranch new
+              mrMay <- withRepoDB repo . transactionally $ createMergeRequest mbranch new
               case mrMay of
                 Just mr ->
                   putStrLn $ "New merge request: " ++ show (mrID mr)

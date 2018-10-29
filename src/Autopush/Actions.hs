@@ -1,5 +1,6 @@
 {-#LANGUAGE TemplateHaskell #-}
 {-#LANGUAGE OverloadedStrings #-}
+{-#LANGUAGE LambdaCase #-}
 module Autopush.Actions
 where
 
@@ -37,6 +38,7 @@ data ActionContext
       { _serverRepo :: GitRepo
       , _workingCopyPool :: TVar [GitRepo]
       , _buildDriver :: BuildDriver
+      , _transactionDepth :: TVar Int
       }
 makeLenses ''ActionContext
 
@@ -47,7 +49,8 @@ type Action = ReaderT ActionContext IO
 -- | Run an 'Action'.
 runAction :: GitRepo -> TVar [GitRepo] -> BuildDriver -> Action a -> IO a
 runAction srepo workingCopyPool bdriver action = do
-  let context = ActionContext srepo workingCopyPool bdriver
+  tdepthVar <- newTVarIO 0
+  let context = ActionContext srepo workingCopyPool bdriver tdepthVar
   runReaderT action context
 
 -- | Run an IO action against an exclusively-leased working copy from a pool.
@@ -75,13 +78,32 @@ withWorkingCopy action = do
   liftIO $ withWorkingCopyIO pool actionIO
 
 
--- | Transactionally run a database action.
+-- | Transactionally run a database action. Supports a poor man's emulation of
+-- nested transactions.
 db :: (SQLite.Connection -> Action a) -> Action a
 db action = do
   srepo <- view serverRepo
   context <- ask
   let actionIO = \conn -> runReaderT (action conn) context
-  liftIO $ withRepoDB srepo actionIO
+  liftIO $ do
+    withRepoDB srepo $ \conn -> do
+      let acquire = atomically $ do
+            t0 <- readTVar (context ^. transactionDepth)
+            writeTVar (context ^. transactionDepth) (succ t0)
+            return t0
+          release _ = atomically $ do
+            t1 <- readTVar (context ^. transactionDepth)
+            let t0 = pred t1
+            writeTVar (context ^. transactionDepth) t0
+            return t0
+      bracket
+        acquire
+        release
+        $ \nestingDepth ->
+            if nestingDepth == 0 then
+              transactionally actionIO conn
+            else
+              actionIO conn
 
 -- | Run a git command against the server repo.
 withGitServer :: (GitRepo -> Action a) -> Action a
@@ -90,8 +112,7 @@ withGitServer action = view serverRepo >>= action
 -- | Prepare a new merge request
 prepareMR :: MergeRequestID -> Action ()
 prepareMR mid = db $ \conn -> do
-  m <- maybe (error "Merge request doesn't exist") pure
-        =<< liftIO (getMergeRequest mid conn)
+  m <- liftIO (getExistingMergeRequest mid conn)
   baseCommit <- withGitServer $ \repo -> liftIO $ do
     Git.updateRefs
       repo
@@ -108,16 +129,12 @@ prepareMR mid = db $ \conn -> do
 getRebaseTarget :: MergeRequest -> SQLite.Connection -> Action SHA
 getRebaseTarget m conn = do
   -- If we have a parent MR, rebase onto that
-  parentMB <- case mrParent m of
-    Just parentID -> do
-      parentMay <- liftIO $ getMergeRequest parentID conn
-      case parentMay of
-        Just parent -> return . Just $ mrCurrentHead parent
-        Nothing -> return Nothing
-    Nothing -> return Nothing
+  parentMB <- liftIO $ getMergeRequestParent m conn
   case parentMB of
-    Just mb -> return mb
-    Nothing -> getGitHead m
+    Just mb ->
+      return (mrCurrentHead mb)
+    Nothing ->
+      getGitHead m
 
 -- | Gets the current head on the server repo (the one we want to merge into)
 getGitHead :: MergeRequest -> Action SHA
@@ -129,8 +146,7 @@ getGitHead m = do
 -- | Schedule a merge request to be built
 scheduleMR :: MergeRequestID -> Action ()
 scheduleMR reqId = db $ \conn -> do
-  m <- maybe (error "Merge request doesn't exist") pure
-        =<< liftIO (getMergeRequest reqId conn)
+  m <- liftIO (getExistingMergeRequest reqId conn)
   when
     (mrRebased m /= NotRebased)
     (error "Merge request already rebased")
@@ -176,8 +192,7 @@ startBuild reqId = do
   let buildRef = toBuildRef reqId
   start <- view $ buildDriver . buildStart
   db $ \conn -> do
-    m <- maybe (error "No such merge request") return =<<
-          liftIO (getMergeRequest reqId conn)
+    m <- liftIO $ getExistingMergeRequest reqId conn
     buildID <- withGitServer $ \repo -> liftIO $ do
       start repo buildRef
     liftIO $
@@ -188,10 +203,51 @@ startBuild reqId = do
         conn
   return ()
 
--- - start a build
---    - tell CI to build this
---    - mark as running
---
+checkBuild :: MergeRequestID -> Action ()
+checkBuild reqId = do
+  db $ \conn -> do
+    m <- liftIO $ getExistingMergeRequest reqId conn
+
+    case (mrBuildStatus m, mrBuildID m) of
+      (Runnable, _) -> do
+        -- It's runnable, let's run it
+        startBuild reqId
+
+      (_, Nothing) -> do
+        -- No idea what's going on here; log & skip
+        liftIO $ logMsg $ "No build found for MR " ++ show reqId
+
+      (Running, Just buildID) -> do
+        -- Already running, check status
+        check <- view $ buildDriver . buildStatus
+        newStatus <- liftIO (check buildID)
+        case newStatus of
+          FailedBuild -> do
+            handleFailedBuild m conn
+          _ ->
+            return ()
+
+      _ ->
+        return ()
+
+handleFailedBuild :: MergeRequest -> SQLite.Connection -> Action ()
+handleFailedBuild m conn = do
+  let go :: MergeRequest -> BuildStatus -> Action ()
+      go m newStatus = do
+        liftIO $
+          updateMergeRequest
+            m { mrParent = Nothing
+              , mrBuildStatus = newStatus
+              }
+            conn
+        -- recurse if children exist
+        liftIO (getMergeRequestChild m conn) >>= \case
+          Nothing -> return ()
+          Just p -> do
+            -- cancel build p
+            go p FailedDeps
+  go m FailedBuild
+
 -- - bail:
 --    - cancel CI build, if any
 --    - reset to pristine state

@@ -85,7 +85,7 @@ instance FromJSON CommitRange
 -- | Run a @git@ command, throwing an exception on failure.
 runGit :: GitRepo -> String -> [String] -> String -> IO String
 runGit (GitRepo path) cmd args input = do
-    logMsg $ "Git("++path++"): "++cmd++" "++unwords args++": "++input
+    -- logMsg $ "Git("++path++"): "++cmd++" "++unwords args++": "++input
     (code, out, err) <- readProcessWithExitCode "git" (["-C", path, cmd] ++ args) input
     case code of
       ExitSuccess -> return out

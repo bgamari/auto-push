@@ -24,6 +24,7 @@ import qualified Git
 import Control.Monad.IO.Class (liftIO)
 import Data.Maybe
 import qualified Data.Text as Text
+import qualified Database.HDBC as HDBC
 
 tests :: TestTree
 tests =
@@ -31,6 +32,8 @@ tests =
     [ testPrepareMR
     , testScheduleMR1
     , testStartBuild
+    , testCheckOnRunningBuild
+    , testCheckOnFailingBuild
     ]
 
 withClonedSRepo :: (GitRepo -> Action a) -> Action a
@@ -69,11 +72,13 @@ testPrepareMR = testCase "prepare new MR" $
           "hello" "hello again\n"
           "more hello"
           (Branch "hello2") (Ref "merge/master")
-      Just m1 <- db $ \conn -> do
-        liftIO $ getMergeRequest 1 conn
+      db $ \conn -> do
+        liftIO $ HDBC.quickQuery' conn "SELECT * FROM merge_requests" [] >>= print
+      m1 <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
       prepareMR (mrID m1)
-      Just m2 <- db $ \conn -> do
-        liftIO $ getMergeRequest 1 conn
+      m2 <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
         assertEqual "same orig head" (mrOriginalHead m1) (mrOriginalHead m2)
         assertEqual "same curr head" (mrCurrentHead m1) (mrCurrentHead m2)
@@ -95,14 +100,14 @@ testScheduleMR1 = testCase "schedule one MR" $
           "hello" "hello again\n"
           "more hello"
           (Branch "hello2") (Ref "merge/master")
-      Just m1 <- db $ \conn -> do
-        liftIO $ getMergeRequest 1 conn
+      m1 <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
       prepareMR (mrID m1)
-      Just m2 <- db $ \conn -> do
-        liftIO $ getMergeRequest 1 conn
+      m2 <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
       scheduleMR (mrID m2)
-      Just m3 <- db $ \conn -> do
-        liftIO $ getMergeRequest 1 conn
+      m3 <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
         assertEqual "actually rebased" (mrOriginalHead m3) (mrCurrentHead m3)
 
@@ -125,8 +130,62 @@ testStartBuild = testCase "start build" $
       prepareMR 1
       scheduleMR 1
       startBuild 1
-      Just m <- db $ \conn -> do
-        liftIO $ getMergeRequest 1 conn
+      m <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
         assertEqual "status is 'Running'" Running (mrBuildStatus m)
         assertEqual "correct build ID stored" (Just "foobar") (mrBuildID m)
+
+testCheckOnRunningBuild :: TestTree
+testCheckOnRunningBuild = testCase "check running build" $
+  runTestAction
+    [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
+    , BuildStatus "foobar" Running
+    ] $ do
+  withClonedSRepo $ \wrepo -> do
+    withGitServer $ \srepo -> do
+      liftIO $ do
+        writeFileAndPush wrepo
+          "hello" "hello\n"
+          "initial commit"
+          (Branch "master") (Ref "master")
+        writeFileAndPush wrepo
+          "hello" "hello again\n"
+          "more hello"
+          (Branch "hello2") (Ref "merge/master")
+      prepareMR 1
+      scheduleMR 1
+      startBuild 1
+      checkBuild 1
+      m <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
+      liftIO $ do
+        assertEqual "correct build ID stored" (Just "foobar") (mrBuildID m)
+        assertEqual "status is 'Running'" Running (mrBuildStatus m)
+
+testCheckOnFailingBuild :: TestTree
+testCheckOnFailingBuild = testCase "check failing build" $
+  runTestAction
+    [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
+    , BuildStatus "foobar" FailedBuild
+    ] $ do
+  withClonedSRepo $ \wrepo -> do
+    withGitServer $ \srepo -> do
+      liftIO $ do
+        writeFileAndPush wrepo
+          "hello" "hello\n"
+          "initial commit"
+          (Branch "master") (Ref "master")
+        writeFileAndPush wrepo
+          "hello" "hello again\n"
+          "more hello"
+          (Branch "hello2") (Ref "merge/master")
+      prepareMR 1
+      scheduleMR 1
+      startBuild 1
+      checkBuild 1
+      m <- db $ \conn -> do
+        liftIO $ getExistingMergeRequest 1 conn
+      liftIO $ do
+        assertEqual "correct build ID stored" (Just "foobar") (mrBuildID m)
+        assertEqual "status is 'Failed'" FailedBuild (mrBuildStatus m)
