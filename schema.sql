@@ -8,4 +8,5 @@ CREATE TABLE IF NOT EXISTS merge_requests
     , orig_head TEXT NOT NULL UNIQUE
     , current_head TEXT NOT NULL
     , merged INTEGER DEFAULT 0
+    , build_id TEXT NULL
     );

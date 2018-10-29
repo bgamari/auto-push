@@ -30,6 +30,7 @@ tests =
   testGroup "Actions"
     [ testPrepareMR
     , testScheduleMR1
+    , testStartBuild
     ]
 
 withClonedSRepo :: (GitRepo -> Action a) -> Action a
@@ -56,7 +57,7 @@ writeFileAndPush wrepo basename body commitMsg localBranch remoteRef = do
 
 testPrepareMR :: TestTree
 testPrepareMR = testCase "prepare new MR" $
-  runTestAction $ do
+  runTestAction [] $ do
   withClonedSRepo $ \wrepo -> do
     withGitServer $ \srepo -> do
       liftIO $ do
@@ -82,7 +83,7 @@ testPrepareMR = testCase "prepare new MR" $
 
 testScheduleMR1 :: TestTree
 testScheduleMR1 = testCase "schedule one MR" $
-  runTestAction $ do
+  runTestAction [] $ do
   withClonedSRepo $ \wrepo -> do
     withGitServer $ \srepo -> do
       liftIO $ do
@@ -104,3 +105,28 @@ testScheduleMR1 = testCase "schedule one MR" $
         liftIO $ getMergeRequest 1 conn
       liftIO $ do
         assertEqual "actually rebased" (mrOriginalHead m3) (mrCurrentHead m3)
+
+testStartBuild :: TestTree
+testStartBuild = testCase "start build" $
+  runTestAction
+    [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
+    ] $ do
+  withClonedSRepo $ \wrepo -> do
+    withGitServer $ \srepo -> do
+      liftIO $ do
+        writeFileAndPush wrepo
+          "hello" "hello\n"
+          "initial commit"
+          (Branch "master") (Ref "master")
+        writeFileAndPush wrepo
+          "hello" "hello again\n"
+          "more hello"
+          (Branch "hello2") (Ref "merge/master")
+      prepareMR 1
+      scheduleMR 1
+      startBuild 1
+      Just m <- db $ \conn -> do
+        liftIO $ getMergeRequest 1 conn
+      liftIO $ do
+        assertEqual "status is 'Running'" Running (mrBuildStatus m)
+        assertEqual "correct build ID stored" (Just "foobar") (mrBuildID m)

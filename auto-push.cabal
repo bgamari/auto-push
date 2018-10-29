@@ -27,6 +27,7 @@ library
                        Autopush.DB
                        Autopush.Hooks
                        Autopush.Actions
+                       Autopush.BuildDriver
   ghc-options:         -Wall
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.8 && <4.13,

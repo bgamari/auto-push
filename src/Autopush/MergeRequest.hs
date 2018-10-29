@@ -16,10 +16,20 @@ import Database.HDBC (SqlValue (..), fromSql, toSql)
 import Database.YeshQL.HDBC.SqlRow.TH (makeSqlRow)
 import Database.YeshQL.HDBC.SqlRow.Class (SqlRow)
 import Data.ByteString.UTF8 as UTF8
+import Data.String
 
 import Autopush.MergeBranch
 
 type MergeRequestID = Integer
+
+newtype BuildID = BuildID { unBuildID :: Text }
+  deriving (Show, Eq, IsString)
+
+instance Convertible SqlValue BuildID where
+  safeConvert = fmap BuildID . safeConvert
+
+instance Convertible BuildID SqlValue where
+  safeConvert = safeConvert . unBuildID
 
 -- | Represent a merge request and its current processing status.
 data MergeRequest
@@ -41,6 +51,8 @@ data MergeRequest
         -- ^ SHA of the current (rebased) branch head
       , mrMerged :: MergeStatus
         -- ^ Whether this MR has been merged.
+      , mrBuildID :: Maybe BuildID
+        -- ^ Most recently started build, as reported by the CI driver
       }
       deriving (Show, Eq)
 
@@ -69,7 +81,7 @@ instance Convertible SqlValue RebaseStatus where
 -- | Build status of a MR
 data BuildStatus
   = Runnable -- ^ No build started yet
-  | Running -- ^ Build running
+  | Running -- ^ Build running (or queued)
   | Passed -- ^ Build has passed
   | FailedBuild -- ^ Failed to build
   | FailedDeps -- ^ A dependency failed to build

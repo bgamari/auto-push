@@ -75,7 +75,16 @@ initializeDB dirname = withDB dirname $ \conn ->
 [yesh1|
   -- name:getMergeRequest :: MergeRequest
   -- :mrID :: MergeRequestID
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id
+       , parent
+       , status
+       , rebased
+       , branch
+       , orig_base
+       , orig_head
+       , current_head
+       , merged
+       , build_id
     FROM merge_requests
     WHERE id = :mrID
 |]
@@ -84,7 +93,16 @@ initializeDB dirname = withDB dirname $ \conn ->
 [yesh1|
   -- name:getMergeRequestParent :: MergeRequest
   -- :m :: MergeRequest
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id
+       , parent
+       , status
+       , rebased
+       , branch
+       , orig_base
+       , orig_head
+       , current_head
+       , merged
+       , build_id
     FROM merge_requests
     WHERE id = :m.mrParent
 |]
@@ -94,7 +112,16 @@ initializeDB dirname = withDB dirname $ \conn ->
 -- scheduled for rebasing and building.
 [yesh1|
   -- name:getNewestActiveMergeRequest :: MergeRequest
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id
+       , parent
+       , status
+       , rebased
+       , branch
+       , orig_base
+       , orig_head
+       , current_head
+       , merged
+       , build_id
     FROM merge_requests
     WHERE merged = 0
       AND rebased > 0
@@ -167,6 +194,7 @@ createMergeRequest branch head conn = HDBC.withTransaction conn $ \conn -> do
       , orig_head = :m.mrOriginalHead
       , current_head = :m.mrCurrentHead
       , merged = :m.mrMerged
+      , build_id = :m.mrBuildID
     WHERE id = :m.mrID
     LIMIT 1
 |]
@@ -179,7 +207,16 @@ updateMergeRequest m conn = HDBC.withTransaction conn $ \conn -> do
 
 [yesh1|
   -- name:getActionableMergeRequests :: [MergeRequest]
-  SELECT id, parent, status, rebased, branch, orig_base, orig_head, current_head, merged
+  SELECT id
+       , parent
+       , status
+       , rebased
+       , branch
+       , orig_base
+       , orig_head
+       , current_head
+       , merged
+       , build_id
     FROM merge_requests
     WHERE merged = 0
 |]

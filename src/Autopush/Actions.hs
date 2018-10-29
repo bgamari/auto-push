@@ -8,6 +8,7 @@ import Utils
 import Autopush.DB
 import Autopush.MergeRequest
 import Autopush.MergeBranch
+import Autopush.BuildDriver
 
 import Control.Lens
 import Control.Lens.TH
@@ -35,6 +36,7 @@ data ActionContext
   = ActionContext
       { _serverRepo :: GitRepo
       , _workingCopyPool :: TVar [GitRepo]
+      , _buildDriver :: BuildDriver
       }
 makeLenses ''ActionContext
 
@@ -43,9 +45,9 @@ makeLenses ''ActionContext
 type Action = ReaderT ActionContext IO
 
 -- | Run an 'Action'.
-runAction :: GitRepo -> TVar [GitRepo] -> Action a -> IO a
-runAction srepo workingCopyPool action = do
-  let context = ActionContext srepo workingCopyPool
+runAction :: GitRepo -> TVar [GitRepo] -> BuildDriver -> Action a -> IO a
+runAction srepo workingCopyPool bdriver action = do
+  let context = ActionContext srepo workingCopyPool bdriver
   runReaderT action context
 
 -- | Run an IO action against an exclusively-leased working copy from a pool.
@@ -169,20 +171,30 @@ scheduleMR reqId = db $ \conn -> do
       Nothing ->
         updateMergeRequest m { mrRebased = RebaseFailed } conn
 
--- TODO:
--- - schedule a merge request:
---    - find parent
---    - assign parent
---    - rebase
---    - mark as rebased
+startBuild :: MergeRequestID -> Action ()
+startBuild reqId = do
+  let buildRef = toBuildRef reqId
+  start <- view $ buildDriver . buildStart
+  db $ \conn -> do
+    m <- maybe (error "No such merge request") return =<<
+          liftIO (getMergeRequest reqId conn)
+    buildID <- withGitServer $ \repo -> liftIO $ do
+      start repo buildRef
+    liftIO $
+      updateMergeRequest
+        m { mrBuildID = Just buildID
+          , mrBuildStatus = Running
+          }
+        conn
+  return ()
+
+-- - start a build
+--    - tell CI to build this
+--    - mark as running
 --
 -- - bail:
 --    - cancel CI build, if any
 --    - reset to pristine state
---
--- - start a build
---    - tell CI to build this
---    - mark as running
 --
 -- - check on an active MR:
 --    - check parent

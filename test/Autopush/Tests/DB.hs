@@ -47,6 +47,7 @@ testCreateMR = testCase "create merge request" $ withTempDB $ \conn -> do
             , mrOriginalHead = head1
             , mrCurrentHead = head1
             , mrMerged = NotMerged
+            , mrBuildID = Nothing
             }
   actual <- createMergeRequest branch head1 conn
   assertEqual "created MR" expected actual
@@ -67,6 +68,7 @@ testUpdateMR = testCase "update merge request" $ withTempDB $ \conn -> do
           , mrOriginalHead = head1
           , mrCurrentHead = head2
           , mrMerged = Merged
+          , mrBuildID = Nothing
           }
       expected = Just m
   createMergeRequest branch head1 conn
@@ -90,6 +92,7 @@ testCreateDependentMR = testCase "create dependent merge request" $ withTempDB $
           , mrOriginalHead = head1
           , mrCurrentHead = head1
           , mrMerged = NotMerged
+          , mrBuildID = Nothing
           }
   Just m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrRebased = Rebased } conn
@@ -114,6 +117,7 @@ testCreateDependentMRSkip = testCase "create dependent merge request (skip one)"
           , mrOriginalHead = head1
           , mrCurrentHead = head1
           , mrMerged = NotMerged
+          , mrBuildID = Nothing
           }
   Just m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrRebased = Rebased } conn
@@ -140,6 +144,7 @@ testCreateDependentMRSkipOther = testCase "create dependent merge request (skip 
           , mrOriginalHead = head1
           , mrCurrentHead = head1
           , mrMerged = NotMerged
+          , mrBuildID = Nothing
           }
   Just m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrMerged = Merged } conn
@@ -164,6 +169,7 @@ testGetActionableMR = testCase "get actionable MRs" $ withTempDB $ \conn -> do
             , mrOriginalHead = head1
             , mrCurrentHead = head1
             , mrMerged = NotMerged
+            , mrBuildID = Nothing
             }
         ]
   createMergeRequest branch head1 conn
@@ -187,6 +193,7 @@ testGetActionableMRFilter = testCase "get actionable MRs (skip non-actionable)" 
             , mrOriginalHead = head1
             , mrCurrentHead = head1
             , mrMerged = NotMerged
+            , mrBuildID = Nothing
             }
         ]
   createMergeRequest branch head1 conn
