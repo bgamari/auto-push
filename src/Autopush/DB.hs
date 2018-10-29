@@ -21,6 +21,7 @@ module Autopush.DB
 , getMergeRequestChild
 , getActionableMergeRequests
 , getMergeRequestEffectiveStatus
+, getNewestActiveMergeRequest
 )
 where
 
@@ -152,6 +153,7 @@ getExistingMergeRequest mid conn =
 -- scheduled for rebasing and building.
 [yesh1|
   -- name:getNewestActiveMergeRequest :: MergeRequest
+  -- :branch :: ManagedBranch
   SELECT id
        , parent
        , status
@@ -165,43 +167,23 @@ getExistingMergeRequest mid conn =
     FROM merge_requests
     WHERE merged = 0
       AND rebased > 0
+      AND branch = :branch
     ORDER BY id DESC
     LIMIT 1
-|]
-
--- | Low-level reparenting.
-[yesh1|
-  -- name:reparentMergeRequest_ :: rowcount Integer
-  -- :m :: MergeRequest
-  UPDATE merge_requests
-  SET parent =
-        (
-          SELECT id
-            FROM merge_requests p
-              WHERE merged = 0
-                AND rebased > 0
-                AND branch = :m.mrBranch
-                AND NOT EXISTS
-                  (
-                    SELECT 1
-                      FROM merge_requests c
-                      WHERE c.parent = p.id
-                  )
-              ORDER BY id DESC LIMIT 1
-        )
-    , merged = 0
-  WHERE id = :m.mrID
-  AND :m.mrParent IS NULL
-  LIMIT 1
 |]
 
 -- | Reparenting. This will find the newest active merge request, and
 -- make the given one depend on it.
 reparentMergeRequest :: MergeRequest -> SQLite.Connection -> IO MergeRequest
 reparentMergeRequest m conn = do
-  rowcount <- reparentMergeRequest_ m conn
-  when (rowcount /= 1) (error "Failed to reparent merge request")
-  getMergeRequest (mrID m) conn >>= maybe (error "Updated merge request does not exist") pure
+  parent <- getNewestActiveMergeRequest (mrBranch m) conn
+  putStrLn "--- child ---"
+  print m
+  putStrLn "--- parent ---"
+  print parent
+  let parentID = fmap mrID parent
+  updateMergeRequest m { mrParent = parentID } conn
+  getExistingMergeRequest (mrID m) conn
 
 -- | Create a new merge request for a given SHA.
 createMergeRequest :: ManagedBranch -> SHA -> SQLite.Connection -> IO (Maybe MergeRequest)

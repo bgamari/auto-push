@@ -21,6 +21,7 @@ import Git (SHA (..), Branch (..), runGit, GitRepo (..) )
 import qualified Git
 import System.FilePath ( (</>) )
 import Control.Monad
+import System.Environment (getEnv)
 
 data BuildChatLine
   = BuildStart Git.Ref BuildID
@@ -75,13 +76,19 @@ withTempDB action =
 
 runTestAction :: [BuildChatLine] -> Action a -> IO a
 runTestAction chat action = do
+  -- home <- getEnv "HOME"
+  -- let dir = home </> "tmp" </> "autopush-repos"
+  -- do
   withSystemTempDirectory "autopush-test-git" $ \dir -> do
     let srepoDir = dir </> "managed.git"
         srepo = GitRepo srepoDir
+    removePathForcibly srepoDir
     createDirectory srepoDir
     runGit srepo "init" [ "--bare", "." ] ""
     workingCopies <- forM [1..3] $ \i -> do
-      Git.clone srepo (dir </> "wc-" ++ show i ++ ".git")
+      let wdir = dir </> "wc-" ++ show i ++ ".git"
+      removePathForcibly wdir
+      Git.clone srepo wdir
     pool <- newTVarIO workingCopies
     installHooks srepo
     (driver, peek) <- chatBuildDriver srepo chat
@@ -89,5 +96,7 @@ runTestAction chat action = do
     retval <- runAction srepo pool driver action
 
     chatScriptRemainder <- peek
-    assertBool "End of chat script reached" (null chatScriptRemainder)
+    assertBool
+      ("Leftover chat script entries: " ++ show chatScriptRemainder)
+      (null chatScriptRemainder)
     return retval

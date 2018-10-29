@@ -126,22 +126,23 @@ prepareMR mid = db $ \conn -> do
 
 -- | Get the rebase target for a merge request. If the merge request has any
 -- parents, use their current heads, otherwise, use the current branch head.
-getRebaseTarget :: MergeRequest -> SQLite.Connection -> Action SHA
+getRebaseTarget :: MergeRequest -> SQLite.Connection -> Action (SHA, Ref)
 getRebaseTarget m conn = do
   -- If we have a parent MR, rebase onto that
   parentMB <- liftIO $ getMergeRequestParent m conn
   case parentMB of
     Just mb ->
-      return (mrCurrentHead mb)
+      return (mrCurrentHead mb, toOrigRef (mrID mb))
     Nothing ->
       getGitHead m
 
 -- | Gets the current head on the server repo (the one we want to merge into)
-getGitHead :: MergeRequest -> Action SHA
+getGitHead :: MergeRequest -> Action (SHA, Ref)
 getGitHead m = do
   let branch = upstreamBranch (mrBranch m)
-  withGitServer $ \repo ->
-    liftIO $ Git.resolveRef repo $ Git.branchRef branch
+  withGitServer $ \repo -> do
+    sha <- liftIO $ Git.resolveRef repo $ Git.branchRef branch
+    return (sha, branchRef branch)
 
 -- | Schedule a merge request to be built
 scheduleMR :: MergeRequestID -> Action ()
@@ -154,9 +155,9 @@ scheduleMR reqId = db $ \conn -> do
     (mrMerged m == Merged)
     (error "Already merged")
 
-  liftIO (reparentMergeRequest m conn)
+  m <- liftIO (reparentMergeRequest m conn)
 
-  brHead <- getRebaseTarget m conn
+  (brHead, brRef) <- getRebaseTarget m conn
 
   origBase <- maybe (error "No merge base") pure $ mrOriginalBase m
   let origHead = mrOriginalHead m
@@ -166,6 +167,10 @@ scheduleMR reqId = db $ \conn -> do
     rebaseResult <- do
       -- Fetch and rebase branch
       Git.fetch repo originRemote [toOrigRef reqId]
+      Git.fetch repo originRemote [brRef]
+      -- Make sure we're in detached head state, otherwise git will try to
+      -- rebase the current branch, which might be nonsensical
+      Git.checkout repo True (CommitSha brHead)
       logMsg $ "Fetched"
       let handleRebaseFail e@GitException{} = do
               logMsg $ "Failed to rebase " ++ show reqId ++ ": " ++ show e
@@ -244,7 +249,7 @@ handleFailedBuild m conn = do
         liftIO (getMergeRequestChild m conn) >>= \case
           Nothing -> return ()
           Just p -> do
-            -- cancel build p
+            -- TODO cancel build p
             go p FailedDeps
   go m FailedBuild
 
