@@ -64,12 +64,13 @@ postReceive repo = do
         postMergeRequest (old, new, ref)
           | Just branch <- isBranch ref
           , Just mbranch <- isMergeBranch branch = do
-              mrMay <- withRepoDB repo . transactionally $ createMergeRequest mbranch new
-              case mrMay of
-                Just mr ->
-                  putStrLn $ "New merge request: " ++ show (mrID mr)
-                Nothing ->
-                  putStrLn $ "(no merge request created)"
+              mr <- withRepoDB repo . transactionally $ \conn -> do
+                -- Create a new merge request and add it to the job queue for
+                -- scheduling.
+                mr <- createMergeRequest mbranch new conn
+                pushJob (mrID mr) conn
+                return mr
+              putStrLn $ "New merge request: " ++ show (mrID mr)
           | otherwise = return ()
 
     mapM_ postMergeRequest updates

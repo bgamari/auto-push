@@ -48,14 +48,14 @@ chatBuildDriver expectedRepo chat = do
                   assertEqual "buildStart ref" expectedRef ref
                   return buildID
                 x -> do
-                  assertFailure $ "Expected BuildStart, but found " ++ show x
+                  assertFailure $ "Expected BuildStart " ++ show ref ++ ", but found " ++ show x
           , _buildCancel = \buildID -> do
               chatLine <- chatPop
               case chatLine of
                 BuildCancel expectedBuildID -> do
                   assertEqual "buildCancel buildID" expectedBuildID buildID
                 x -> do
-                  assertFailure $ "Expected BuildCancel, but found " ++ show x
+                  assertFailure $ "Expected BuildCancel " ++ show buildID ++ ", but found " ++ show x
           , _buildStatus = \buildID -> do
               chatLine <- chatPop
               case chatLine of
@@ -63,7 +63,7 @@ chatBuildDriver expectedRepo chat = do
                   assertEqual "buildStatus buildID" expectedBuildID buildID
                   return status
                 x -> do
-                  assertFailure $ "Expected BuildStatus, but found " ++ show x
+                  assertFailure $ "Expected BuildStatus " ++ show buildID ++ ", but found " ++ show x
           }
   let peek = atomically $ readTVar chatVar
   return (driver, peek)

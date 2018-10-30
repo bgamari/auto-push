@@ -36,19 +36,18 @@ testCreateMR = testCase "create merge request" $ withTempDB $ \conn -> do
   let branch = ManagedBranch $ Branch "merge/hello"
       head1 = SHA "9591818c07e900db7e1e0bc4b884c945e6a61b24"
       expected =
-        Just
-          MergeRequest
-            { mrID = 1
-            , mrParent = Nothing
-            , mrBuildStatus = Runnable
-            , mrRebased = NotRebased
-            , mrBranch = branch
-            , mrOriginalBase = Nothing
-            , mrOriginalHead = head1
-            , mrCurrentHead = head1
-            , mrMerged = NotMerged
-            , mrBuildID = Nothing
-            }
+        MergeRequest
+          { mrID = 1
+          , mrParent = Nothing
+          , mrBuildStatus = Runnable
+          , mrRebased = NotRebased
+          , mrBranch = branch
+          , mrOriginalBase = Nothing
+          , mrOriginalHead = head1
+          , mrCurrentHead = head1
+          , mrMerged = NotMerged
+          , mrBuildID = Nothing
+          }
   actual <- createMergeRequest branch head1 conn
   assertEqual "created MR" expected actual
 
@@ -94,9 +93,9 @@ testCreateDependentMR = testCase "create dependent merge request" $ withTempDB $
           , mrMerged = NotMerged
           , mrBuildID = Nothing
           }
-  Just m <- createMergeRequest branch head2 conn
+  m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrRebased = Rebased } conn
-  Just m <- createMergeRequest branch head1 conn
+  m <- createMergeRequest branch head1 conn
   actual <- reparentMergeRequest m conn
   assertEqual "created dependent MR" expected actual
 
@@ -119,11 +118,11 @@ testCreateDependentMRSkip = testCase "create dependent merge request (skip one)"
           , mrMerged = NotMerged
           , mrBuildID = Nothing
           }
-  Just m <- createMergeRequest branch head2 conn
+  m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrRebased = Rebased } conn
-  Just m <- createMergeRequest branch head3 conn
+  m <- createMergeRequest branch head3 conn
   updateMergeRequest m { mrMerged = Merged } conn
-  Just m <- createMergeRequest branch head1 conn
+  m <- createMergeRequest branch head1 conn
   actual <- reparentMergeRequest m conn
   assertEqual "created dependent MR (skip merged)" expected actual
 
@@ -146,11 +145,11 @@ testCreateDependentMRSkipOther = testCase "create dependent merge request (skip 
           , mrMerged = NotMerged
           , mrBuildID = Nothing
           }
-  Just m <- createMergeRequest branch head2 conn
+  m <- createMergeRequest branch head2 conn
   updateMergeRequest m { mrMerged = Merged } conn
-  Just m <- createMergeRequest branch head3 conn
+  m <- createMergeRequest branch head3 conn
   updateMergeRequest m { mrRebased = Rebased } conn
-  Just m <- createMergeRequest branch head1 conn
+  m <- createMergeRequest branch head1 conn
   actual <- reparentMergeRequest m conn
   assertEqual "created dependent MR (skip merged)" expected actual
 
@@ -199,7 +198,7 @@ testGetActionableMRFilter = testCase "get actionable MRs (skip non-actionable)" 
   createMergeRequest branch head1 conn
   -- Create another MR, but mark it as merged - this shouldn't show up as
   -- actionable.
-  Just m2 <- createMergeRequest otherBranch head2 conn
+  m2 <- createMergeRequest otherBranch head2 conn
   updateMergeRequest m2 { mrMerged = Merged } conn
   actual <- getActionableMergeRequests conn
   assertEqual "actionable MRs" expected actual

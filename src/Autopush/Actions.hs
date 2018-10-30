@@ -208,37 +208,77 @@ startBuild reqId = do
         conn
   return ()
 
-checkBuild :: MergeRequestID -> Action ()
-checkBuild reqId = do
-  db $ \conn -> do
-    m <- liftIO $ getExistingMergeRequest reqId conn
+requeue jobID reqID = db $ \conn -> liftIO $ do
+  finishJob jobID conn
+  pushJob reqID conn
+  return ()
 
-    case (mrBuildStatus m, mrBuildID m) of
-      (Runnable, _) -> do
+done jobID = db $ \conn -> liftIO $ do
+  finishJob jobID conn
+
+runNextJob :: WorkerID -> Action ()
+runNextJob worker = do
+  (db $ liftIO . popJob worker) >>= \case
+    Nothing ->
+      -- nothing to do
+      return ()
+    Just (jobID, m) -> do
+      execJob worker jobID m
+
+runAllJobs :: WorkerID -> Action ()
+runAllJobs worker = do
+  (db $ liftIO . popJob worker) >>= \case
+    Nothing ->
+      -- nothing to do
+      return ()
+    Just (jobID, m) -> do
+      execJob worker jobID m
+      runAllJobs worker
+
+execJob :: WorkerID -> JobID -> MergeRequest -> Action ()
+execJob worker jobID m = do
+    let reqId = mrID m
+    liftIO . logMsg $ "Starting job " ++ show jobID ++ ", MR: " ++ show reqId
+    liftIO . logMsg $ show m
+    case (mrOriginalBase m, mrRebased m, mrBuildStatus m, mrBuildID m) of
+      (Nothing, _, _, _) -> do
+        -- fresh MR, need to prepare it
+        prepareMR reqId
+        requeue jobID reqId
+
+      (_, NotRebased, _, _) -> do
+        -- needs to be reparented and/or rebased
+        scheduleMR reqId
+        requeue jobID reqId
+
+      (_, _, Runnable, _) -> do
         -- It's runnable, let's run it
         startBuild reqId
+        requeue jobID reqId
 
-      (Running, Just buildID) -> do
+      (_, _, Running, Just buildID) -> do
         -- Already running, check status
         check <- view $ buildDriver . buildStatus
         newStatus <- liftIO (check buildID)
         case newStatus of
           FailedBuild -> do
-            handleFailedBuild m conn
+            db $ handleFailedBuild m
           Passed -> do
-            handlePassedBuild m conn
+            db $ handlePassedBuild m
+            requeue jobID reqId
           _ ->
-            return ()
+            requeue jobID reqId
 
-      (Running, Nothing) -> do
+      (_, _, Running, Nothing) -> do
         -- No idea what's going on here; log & skip
         liftIO $ logMsg $ "No build found for MR " ++ show reqId
+        db $ liftIO . finishJob jobID
 
-      (Passed, _) -> do
-        checkMergeableBuild m conn
+      (_, _, Passed, _) -> do
+        db $ checkMergeableBuild m
 
       _ ->
-        return ()
+        db $ liftIO . finishJob jobID
 
 checkMergeableBuild :: MergeRequest -> SQLite.Connection -> Action ()
 checkMergeableBuild m conn = do
@@ -250,7 +290,7 @@ checkMergeableBuild m conn = do
       if mrMerged p == Merged then
         mergeGoodRequest m conn
       else
-        return ()
+        void $ liftIO $ pushJob (mrID m) conn
 
 handlePassedBuild :: MergeRequest -> SQLite.Connection -> Action ()
 handlePassedBuild m conn = do
@@ -272,6 +312,8 @@ handleFailedBuild m conn = do
               , mrBuildID = Nothing
               }
             conn
+        -- remove all job queue entries
+        liftIO $ cancelJobsFor (mrID m) conn
         -- recurse if children exist
         liftIO (getMergeRequestChild m conn) >>= \case
           Nothing -> return ()

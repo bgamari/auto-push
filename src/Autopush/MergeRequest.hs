@@ -22,6 +22,10 @@ import Autopush.MergeBranch
 
 type MergeRequestID = Integer
 
+type JobID = Integer
+
+type WorkerID = Text
+
 newtype BuildID = BuildID { unBuildID :: Text }
   deriving (Show, Eq, IsString)
 

@@ -2,15 +2,22 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Database manipulations.
 module Autopush.DB
-( withDB
+( 
+-- * Connection and Transaction Management
+  withDB
 , withRepoDB
 , withTransaction
 , transactionally
+
+-- * Schema
 , initializeDB
 , initializeRepoDB
+
+-- * Merge Requests
 , createMergeRequest
 , updateMergeRequest
 , reparentMergeRequest
@@ -22,6 +29,14 @@ module Autopush.DB
 , getActionableMergeRequests
 , getMergeRequestEffectiveStatus
 , getNewestActiveMergeRequest
+
+-- * Jobs
+, pushJob
+, popJob
+, abandonJob
+, finishJob
+, listJobs
+, cancelJobsFor
 )
 where
 
@@ -33,6 +48,7 @@ import Database.YeshQL.HDBC (yesh, yesh1)
 import Control.Exception (bracket, Exception, throw)
 import Control.Monad (when)
 import System.FilePath
+import Control.Monad (void)
 
 import Autopush.MergeRequest
 import Autopush.MergeBranch
@@ -43,8 +59,20 @@ data RowNotFoundException = RowNotFoundException
 
 instance Exception RowNotFoundException where
 
+data TooManyRowsException = TooManyRowsException
+  deriving (Show)
+
+instance Exception TooManyRowsException where
+
 assertRow :: IO (Maybe a) -> IO a
 assertRow = (maybe (throw RowNotFoundException) return =<<)
+
+assertOneRow :: IO Int -> IO ()
+assertOneRow action = do
+  action >>= \case
+    1 -> return ()
+    0 -> throw RowNotFoundException
+    _ -> throw TooManyRowsException
 
 transactionally :: (SQLite.Connection -> IO a) -> SQLite.Connection -> IO a
 transactionally = flip withTransaction
@@ -70,6 +98,7 @@ initializeDB dirname = withDB dirname $ \conn ->
   withTransaction conn $ \conn ->
   HDBC.runRaw conn $(embedStringFile "schema.sql")
 
+
 -- | Fetch the last insert-ID (SQLite-ism)
 [yesh1|
   -- name:lastMergeRequestID_ :: (MergeRequestID)
@@ -78,7 +107,7 @@ initializeDB dirname = withDB dirname $ \conn ->
 
 -- | Low-level create a 'MergeRequest'. Automatically assigns parent.
 [yesh1|
-  -- name:createMergeRequest_ :: rowcount Integer
+  -- name:createMergeRequest_ :: rowcount Int
   -- :branch :: ManagedBranch
   -- :head :: SHA
   INSERT INTO merge_requests
@@ -177,26 +206,21 @@ getExistingMergeRequest mid conn =
 reparentMergeRequest :: MergeRequest -> SQLite.Connection -> IO MergeRequest
 reparentMergeRequest m conn = do
   parent <- getNewestActiveMergeRequest (mrBranch m) conn
-  putStrLn "--- child ---"
-  print m
-  putStrLn "--- parent ---"
-  print parent
   let parentID = fmap mrID parent
   updateMergeRequest m { mrParent = parentID } conn
   getExistingMergeRequest (mrID m) conn
 
 -- | Create a new merge request for a given SHA.
-createMergeRequest :: ManagedBranch -> SHA -> SQLite.Connection -> IO (Maybe MergeRequest)
+createMergeRequest :: ManagedBranch -> SHA -> SQLite.Connection -> IO MergeRequest
 createMergeRequest branch head conn = do
-  rowcount <- createMergeRequest_ branch head conn
-  when (rowcount /= 1) (error "Insert failed")
-  insertID <- maybe (error "Failed to get inserted ID") pure =<< lastMergeRequestID_ conn
-  getMergeRequest insertID conn
+  assertOneRow $ createMergeRequest_ branch head conn
+  insertID <- assertRow $ lastMergeRequestID_ conn
+  assertRow $ getMergeRequest insertID conn
 
 -- | Reset a merge request to \"pristine\" state (as if it had just been
 -- created).
 [yesh1|
-  -- name:bailMergeRequest :: rowcount Integer
+  -- name:bailMergeRequest :: rowcount Int
   -- :m :: MergeRequest
   UPDATE merge_requests
   SET parent = NULL
@@ -206,7 +230,7 @@ createMergeRequest branch head conn = do
 |]
 
 [yesh1|
-  -- name:updateMergeRequest_ :: rowcount Integer
+  -- name:updateMergeRequest_ :: rowcount Int
   -- :m :: MergeRequest
   UPDATE merge_requests
     SET parent = :m.mrParent
@@ -259,3 +283,109 @@ getMergeRequestEffectiveStatus m conn = go m
             Just parent -> do
               parentStatus <- go parent
               return $ applyParentStatus parentStatus (mrBuildStatus m)
+
+-- | Fetch the last insert-ID (SQLite-ism)
+[yesh1|
+  -- name:lastJobID_ :: (JobID)
+  SELECT last_insert_rowid() FROM jobs
+|]
+
+-- | Gets the next job from the job queue
+[yesh1|
+  -- name:getJob_ :: (JobID)
+  SELECT id
+  FROM jobs
+  WHERE worker IS NULL
+  ORDER BY id
+  LIMIT 1
+|]
+
+[yesh1|
+  -- name:getJobMR_ :: MergeRequest
+  -- :jobID :: JobID
+  SELECT m.id
+       , m.parent
+       , m.status
+       , m.rebased
+       , m.branch
+       , m.orig_base
+       , m.orig_head
+       , m.current_head
+       , m.merged
+       , m.build_id
+    FROM merge_requests m
+    INNER JOIN jobs j ON j.merge_request = m.id
+    WHERE j.id = :jobID
+|]
+
+[yesh1|
+  -- name:claimJob_ :: rowcount Int
+  -- :jobID :: JobID
+  -- :worker :: WorkerID
+  UPDATE jobs
+    SET worker = :worker
+    WHERE id = :jobID
+|]
+
+[yesh1|
+  -- name:finishJob_ :: rowcount Int
+  -- :jobID :: JobID
+  DELETE FROM jobs
+    WHERE id = :jobID
+|]
+
+[yesh1|
+  -- name:cancelJobsFor :: rowcount Int
+  -- :mrID :: MergeRequestID
+  DELETE FROM jobs
+    WHERE merge_request = :mrID
+|]
+
+[yesh1|
+  -- name:dropJob_ :: rowcount Int
+  -- :jobID :: JobID
+  UPDATE jobs
+    SET worker = NULL
+    WHERE id = :jobID
+|]
+
+[yesh1|
+  -- name:insertJob_ :: rowcount Int
+  -- :mrID :: MergeRequestID
+  INSERT INTO jobs
+    (merge_request)
+    VALUES
+    (:mrID)
+|]
+
+type MaybeWorkerID = Maybe WorkerID
+
+[yesh1|
+  -- name:listJobs :: [(JobID, MergeRequestID, MaybeWorkerID)]
+  SELECT id, merge_request, worker
+  FROM jobs
+  ORDER BY id
+|]
+
+pushJob :: MergeRequestID -> SQLite.Connection -> IO JobID
+pushJob mrID conn = do
+  assertOneRow $ insertJob_ mrID conn
+  assertRow $ lastJobID_ conn
+
+popJob :: WorkerID -> SQLite.Connection -> IO (Maybe (JobID, MergeRequest))
+popJob worker conn = do
+  getJob_ conn >>= \case
+    Nothing ->
+      return Nothing
+    Just jobID -> do
+      assertOneRow $ claimJob_ jobID worker conn
+      m <- assertRow $ getJobMR_ jobID conn
+      return $ Just (jobID, m)
+
+abandonJob :: JobID -> SQLite.Connection -> IO ()
+abandonJob jobID conn = do
+  assertOneRow $ dropJob_ jobID conn
+
+finishJob :: JobID -> SQLite.Connection -> IO ()
+finishJob jobID conn = do
+  void $ finishJob_ jobID conn

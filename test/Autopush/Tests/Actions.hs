@@ -40,6 +40,9 @@ tests =
     , testHappyCase
     ]
 
+defWorkerID :: WorkerID
+defWorkerID = "def-test-worker"
+
 withClonedSRepo :: (GitRepo -> Action a) -> Action a
 withClonedSRepo action = do
   withGitServer $ \srepo -> do
@@ -79,8 +82,6 @@ testPrepareMR = testCase "prepare new MR" $
           "hello" "hello again\n"
           "more hello"
           (Branch "hello2") (Ref "merge/master")
-      db $ \conn -> do
-        liftIO $ HDBC.quickQuery' conn "SELECT * FROM merge_requests" [] >>= print
       m1 <- db $ \conn -> do
         liftIO $ getExistingMergeRequest 1 conn
       prepareMR (mrID m1)
@@ -190,10 +191,14 @@ testCheckOnRunningBuild = testCase "check running build" $
           "hello" "hello again\n"
           "more hello"
           (Branch "hello2") (Ref "merge/master")
-      prepareMR 1
-      scheduleMR 1
-      startBuild 1
-      checkBuild 1
+      -- prepareMR 1
+      -- scheduleMR 1
+      -- startBuild 1
+      -- checkMR 1
+      runNextJob defWorkerID
+      runNextJob defWorkerID
+      runNextJob defWorkerID
+      runNextJob defWorkerID
       m <- db $ \conn -> do
         liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
@@ -217,13 +222,7 @@ testHappyCase = testCase "happy case" $
           "hello" "hello again\n"
           "more hello"
           (Branch "hello2") (Ref "merge/master")
-    prepareMR 1
-    scheduleMR 1
-    startBuild 1
-    checkBuild 1
-    m <- db $ \conn -> do
-      liftIO $ getExistingMergeRequest 1 conn
-    checkBuild 1
+    runAllJobs defWorkerID
     m <- db $ \conn -> do
       liftIO $ getExistingMergeRequest 1 conn
     liftIO $ do
@@ -250,14 +249,15 @@ testCheckOnFailingBuild = testCase "check failing build" $
           "hello" "hello again\n"
           "more hello"
           (Branch "hello2") (Ref "merge/master")
-      prepareMR 1
-      scheduleMR 1
-      startBuild 1
+      -- 3 jobs should become available: prepare, schedule, start
+      runNextJob defWorkerID
+      runNextJob defWorkerID
+      runNextJob defWorkerID
       m <- db $ \conn -> do
         liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
         assertEqual "correct build ID stored" (Just "foobar") (mrBuildID m)
-      checkBuild 1
+      runAllJobs defWorkerID
       m <- db $ \conn -> do
         liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
@@ -268,6 +268,8 @@ testCheckOnFailingBuildWithDep :: TestTree
 testCheckOnFailingBuildWithDep = testCase "check failing build with dependency" $
   runTestAction
     [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
+    , BuildStatus "foobar" Running
+    , BuildStatus "foobar" Running
     , BuildStart (Ref "refs/heads/auto-push/to-build/2") "bazquux"
     , BuildStatus "foobar" FailedBuild
     , BuildCancel "bazquux"
@@ -286,22 +288,27 @@ testCheckOnFailingBuildWithDep = testCase "check failing build with dependency" 
           "hello" "hello again\n"
           "more hello"
           (Branch "hello1") (Ref "merge/master")
+
+      -- prepare 1
+      runNextJob defWorkerID
+      -- schedule 1
+      runNextJob defWorkerID
+
+      m <- db $ liftIO . getExistingMergeRequest 1
+      liftIO $ assertEqual "MR1 rebased" Rebased (mrRebased m)
+
+      liftIO $ do
         writeFileAndPush wrepo
           "hello" "hello once more\n"
           "even more hello"
           (Branch "hello2") (Ref "merge/master")
 
-      prepareMR 1
-      scheduleMR 1
-      startBuild 1
-
-      m <- db $ liftIO . getExistingMergeRequest 1
-      liftIO $ assertEqual "MR1 rebased" Rebased (mrRebased m)
-      liftIO $ print m
-
-      prepareMR 2
-      scheduleMR 2
-      startBuild 2
+      runNextJob defWorkerID
+      runNextJob defWorkerID
+      runNextJob defWorkerID
+      runNextJob defWorkerID
+      runNextJob defWorkerID
+      runNextJob defWorkerID
 
       (m1, m2) <- db $ \conn -> liftIO $ do
         (,) <$> getExistingMergeRequest 1 conn
@@ -309,13 +316,10 @@ testCheckOnFailingBuildWithDep = testCase "check failing build with dependency" 
 
       liftIO $ do
         assertEqual "MR2 parented onto MR1" (Just $ mrID m1) (mrParent m2)
-        assertEqual "MR1: correct build ID stored" (Just "foobar") (mrBuildID m1)
-        assertEqual "MR2: correct build ID stored" (Just "bazquux") (mrBuildID m2)
         assertEqual "MR1: status is 'running'" Running (mrBuildStatus m1)
         assertEqual "MR2: status is 'running'" Running (mrBuildStatus m2)
 
-      checkBuild 1
-      checkBuild 2
+      runAllJobs defWorkerID
 
       (m1, m2) <- db $ \conn -> liftIO $ do
         (,) <$> getExistingMergeRequest 1 conn
