@@ -85,11 +85,7 @@ runTestAction chat action = do
     removePathForcibly srepoDir
     createDirectory srepoDir
     runGit srepo "init" [ "--bare", "." ] ""
-    workingCopies <- forM [1..3] $ \i -> do
-      let wdir = dir </> "wc-" ++ show i ++ ".git"
-      removePathForcibly wdir
-      Git.clone srepo wdir
-    pool <- newTVarIO workingCopies
+    pool <- mkWorkingCopies srepo dir 3
     installHooks srepo
     (driver, peek) <- chatBuildDriver srepo chat
 

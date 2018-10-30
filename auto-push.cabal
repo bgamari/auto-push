@@ -28,6 +28,7 @@ library
                        Autopush.Hooks
                        Autopush.Actions
                        Autopush.BuildDriver
+                       Autopush.Run
   ghc-options:         -Wall
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.8 && <4.13,
@@ -47,6 +48,7 @@ library
                        mtl >=2.2.2 && <=2.3,
                        network-uri >= 2.6,
                        process >=1.4 && <1.7,
+                       random >=1.1 && <=1.2,
                        servant-client >= 0.13,
                        servant-server >= 0.10,
                        stm >= 2.4,

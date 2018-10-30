@@ -20,6 +20,8 @@ import Control.Concurrent.STM
 import Database.HDBC.Sqlite3 as SQLite
 import Data.Maybe
 import Control.Exception
+import System.Directory
+import System.FilePath
 
 -- | The 'origin' remote
 originRemote :: Remote
@@ -52,6 +54,13 @@ runAction srepo workingCopyPool bdriver action = do
   tdepthVar <- newTVarIO 0
   let context = ActionContext srepo workingCopyPool bdriver tdepthVar
   runReaderT action context
+
+mkWorkingCopies :: GitRepo -> FilePath -> Int -> IO (TVar [GitRepo])
+mkWorkingCopies srepo dir num = do
+  newTVarIO =<< (forM [1..num] $ \i -> do
+    let wdir = dir </> "worker-" ++ show i ++ ".git"
+    removePathForcibly wdir
+    Git.clone srepo wdir)
 
 -- | Run an IO action against an exclusively-leased working copy from a pool.
 withWorkingCopyIO :: TVar [GitRepo] -> (GitRepo -> IO a) -> IO a
