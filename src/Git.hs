@@ -24,6 +24,7 @@ module Git
     , rebase
     , abortRebase
     , checkout
+    , checkoutBranch
     , updateRefs
     , UpdateRefAction(..)
       -- * Remotes
@@ -85,7 +86,7 @@ instance FromJSON CommitRange
 -- | Run a @git@ command, throwing an exception on failure.
 runGit :: GitRepo -> String -> [String] -> String -> IO String
 runGit (GitRepo path) cmd args input = do
-    -- logMsg $ "Git("++path++"): "++cmd++" "++unwords args++": "++input
+    logMsg $ "Git(" ++ path ++ "): " ++ cmd ++ " " ++ unwords args ++ ": " ++ input
     (code, out, err) <- readProcessWithExitCode "git" (["-C", path, cmd] ++ args) input
     case code of
       ExitSuccess -> return out
@@ -98,7 +99,8 @@ runGit (GitRepo path) cmd args input = do
 
 resolveRef :: GitRepo -> Ref -> IO SHA
 resolveRef repo ref =
-    SHA . T.strip . T.pack <$> runGit repo "rev-parse" [showRef ref] ""
+    SHA . T.strip . T.pack . concat . take 1 . lines <$>
+      runGit repo "rev-parse" [showRef ref, "--"] ""
 
 rebase :: GitRepo
        -> CommitRange  -- ^ range of commits to rebase (e.g. base..head)
@@ -122,6 +124,14 @@ checkout repo force commit =
     void $ runGit repo "checkout" (if force then ["-f", ref] else [ref]) ""
   where
     ref = showCommit commit
+
+checkoutBranch :: GitRepo
+               -> Branch
+               -> IO ()
+checkoutBranch repo branch =
+    void $ runGit repo "checkout" [ "-b", b ] ""
+  where
+    b = T.unpack $ getBranchName branch
 
 mergeBase :: GitRepo -> Commit -> Commit -> IO SHA
 mergeBase repo a b =
@@ -177,10 +187,10 @@ showCommit (CommitSha sha) = showSHA sha
 showCommit (CommitRef ref) = showRef ref
 
 showSHA :: SHA -> String
-showSHA (SHA ref) = T.unpack ref
+showSHA (SHA ref) = T.unpack . T.strip $ ref
 
 showRef :: Ref -> String
-showRef (Ref ref) = T.unpack ref
+showRef (Ref ref) = T.unpack . T.strip $ ref
 
 data UpdateRefAction = UpdateRef Ref SHA (Maybe SHA)
                      | CreateRef Ref SHA

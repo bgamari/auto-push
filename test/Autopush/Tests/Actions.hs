@@ -8,6 +8,7 @@ import Autopush.Actions
 import Autopush.DB
 import Autopush.MergeRequest
 import Autopush.MergeBranch
+import Autopush.BuildDriver (BuildStatus (..))
 
 import Autopush.Tests.Helpers
 
@@ -171,14 +172,14 @@ testStartBuild = testCase "start build" $
       m <- db $ \conn -> do
         liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
-        assertEqual "status is 'Running'" Running (mrBuildStatus m)
+        assertEqual "status is 'Running'" Running (mrMergeRequestStatus m)
         assertEqual "correct build ID stored" (Just "foobar") (mrBuildID m)
 
 testCheckOnRunningBuild :: TestTree
 testCheckOnRunningBuild = testCase "check running build" $
   runTestAction
     [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
-    , BuildStatus "foobar" Running
+    , BuildStatus "foobar" BuildRunning
     ] $ do
   withClonedSRepo $ \wrepo -> do
     withGitServer $ \srepo -> do
@@ -203,13 +204,13 @@ testCheckOnRunningBuild = testCase "check running build" $
         liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
         assertEqual "correct build ID stored" (Just "foobar") (mrBuildID m)
-        assertEqual "status is 'Running'" Running (mrBuildStatus m)
+        assertEqual "status is 'Running'" Running (mrMergeRequestStatus m)
 
 testHappyCase :: TestTree
 testHappyCase = testCase "happy case" $
   runTestAction
     [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
-    , BuildStatus "foobar" Passed
+    , BuildStatus "foobar" BuildPassed
     ] $ do
   withGitServer $ \srepo -> do
     withClonedSRepo $ \wrepo -> do
@@ -226,7 +227,7 @@ testHappyCase = testCase "happy case" $
     m <- db $ \conn -> do
       liftIO $ getExistingMergeRequest 1 conn
     liftIO $ do
-      assertEqual "status is 'Passed'" Passed (mrBuildStatus m)
+      assertEqual "status is 'Passed'" Passed (mrMergeRequestStatus m)
       assertEqual "merged" Merged (mrMerged m)
     withClonedSRepo $ \wrepo -> liftIO $ do
       contents <- readFile $ Git.gitRepoDir wrepo </> "hello"
@@ -236,7 +237,7 @@ testCheckOnFailingBuild :: TestTree
 testCheckOnFailingBuild = testCase "check failing build" $
   runTestAction
     [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
-    , BuildStatus "foobar" FailedBuild
+    , BuildStatus "foobar" (BuildFailed "oh no")
     ] $ do
   withClonedSRepo $ \wrepo -> do
     withGitServer $ \srepo -> do
@@ -262,20 +263,20 @@ testCheckOnFailingBuild = testCase "check failing build" $
         liftIO $ getExistingMergeRequest 1 conn
       liftIO $ do
         assertEqual "build ID cleared" Nothing (mrBuildID m)
-        assertEqual "status is 'Failed'" FailedBuild (mrBuildStatus m)
+        assertEqual "status is 'Failed'" FailedBuild (mrMergeRequestStatus m)
 
 testCheckOnFailingBuildWithDep :: TestTree
 testCheckOnFailingBuildWithDep = testCase "check failing build with dependency" $
   runTestAction
     [ BuildStart (Ref "refs/heads/auto-push/to-build/1") "foobar"
-    , BuildStatus "foobar" Running
-    , BuildStatus "foobar" Running
+    , BuildStatus "foobar" BuildRunning
+    , BuildStatus "foobar" BuildRunning
     , BuildStart (Ref "refs/heads/auto-push/to-build/2") "bazquux"
-    , BuildStatus "foobar" FailedBuild
+    , BuildStatus "foobar" (BuildFailed "oh no")
     , BuildCancel "bazquux"
     -- The following request doesn't actually happen, because the second MR is
     -- already "FailedDeps" by the time we get here
-    -- , BuildStatus "bazquux" Passed
+    -- , BuildStatus "bazquux" BuildPassed
     ] $ do
   withClonedSRepo $ \wrepo -> do
     withGitServer $ \srepo -> do
@@ -316,8 +317,8 @@ testCheckOnFailingBuildWithDep = testCase "check failing build with dependency" 
 
       liftIO $ do
         assertEqual "MR2 parented onto MR1" (Just $ mrID m1) (mrParent m2)
-        assertEqual "MR1: status is 'running'" Running (mrBuildStatus m1)
-        assertEqual "MR2: status is 'running'" Running (mrBuildStatus m2)
+        assertEqual "MR1: status is 'running'" Running (mrMergeRequestStatus m1)
+        assertEqual "MR2: status is 'running'" Running (mrMergeRequestStatus m2)
 
       runAllJobs defWorkerID
 
@@ -329,6 +330,6 @@ testCheckOnFailingBuildWithDep = testCase "check failing build with dependency" 
         assertEqual "MR2 unparented" Nothing (mrParent m2)
         assertEqual "MR1: build ID cleared" Nothing (mrBuildID m1)
         assertEqual "MR2: build ID cleared" Nothing (mrBuildID m2)
-        assertEqual "MR1: status is 'failed'" FailedBuild (mrBuildStatus m1)
-        assertEqual "MR2: status is 'dependency failed'" FailedDeps (mrBuildStatus m2)
+        assertEqual "MR1: status is 'failed'" FailedBuild (mrMergeRequestStatus m1)
+        assertEqual "MR2: status is 'dependency failed'" FailedDeps (mrMergeRequestStatus m2)
 

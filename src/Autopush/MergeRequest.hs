@@ -19,6 +19,7 @@ import Data.ByteString.UTF8 as UTF8
 import Data.String
 
 import Autopush.MergeBranch
+import Autopush.BuildDriver (BuildID)
 
 type MergeRequestID = Integer
 
@@ -26,22 +27,13 @@ type JobID = Integer
 
 type WorkerID = Text
 
-newtype BuildID = BuildID { unBuildID :: Text }
-  deriving (Show, Eq, IsString)
-
-instance Convertible SqlValue BuildID where
-  safeConvert = fmap BuildID . safeConvert
-
-instance Convertible BuildID SqlValue where
-  safeConvert = safeConvert . unBuildID
-
 -- | Represent a merge request and its current processing status.
 data MergeRequest
   = MergeRequest
       { mrID :: MergeRequestID
       , mrParent :: Maybe MergeRequestID
         -- ^ Next up in the dependency chain.
-      , mrBuildStatus :: BuildStatus
+      , mrMergeRequestStatus :: MergeRequestStatus
         -- ^ Own build status. Note that parent build status is implicit.
       , mrRebased :: RebaseStatus
         -- ^ What this MR is currently rebased on.
@@ -83,7 +75,7 @@ instance Convertible SqlValue RebaseStatus where
       pure Rebased
 
 -- | Build status of a MR
-data BuildStatus
+data MergeRequestStatus
   = Runnable -- ^ No build started yet
   | Running -- ^ Build running (or queued)
   | Passed -- ^ Build has passed
@@ -91,16 +83,16 @@ data BuildStatus
   | FailedDeps -- ^ A dependency failed to build
   deriving (Show, Read, Eq, Ord, Enum, Bounded)
 
-isFailedStatus :: BuildStatus -> Bool
+isFailedStatus :: MergeRequestStatus -> Bool
 isFailedStatus FailedBuild = True
 isFailedStatus FailedDeps = True
 isFailedStatus _ = False
 
-isPassedStatus :: BuildStatus -> Bool
+isPassedStatus :: MergeRequestStatus -> Bool
 isPassedStatus Passed = True
 isPassedStatus _ = False
 
-isPendingStatus :: BuildStatus -> Bool
+isPendingStatus :: MergeRequestStatus -> Bool
 isPendingStatus Running = True
 isPendingStatus Runnable = True
 isPendingStatus _ = False
@@ -109,7 +101,7 @@ isPendingStatus _ = False
 -- status will be the failure if the own status is a failure, 'FailedDeps' if
 -- the parent status is a failure, and the own status otherwise - though
 -- never anything decisive while the parent status is pending.
-applyParentStatus :: BuildStatus -> BuildStatus -> BuildStatus
+applyParentStatus :: MergeRequestStatus -> MergeRequestStatus -> MergeRequestStatus
 applyParentStatus parent self
   -- if self failed, use that failure
   | isFailedStatus self = self
@@ -120,17 +112,17 @@ applyParentStatus parent self
   -- parent succeeded, self is decisive
   | otherwise = self
 
-instance Convertible BuildStatus SqlValue where
+instance Convertible MergeRequestStatus SqlValue where
   safeConvert = safeConvert . show
 
-instance Convertible SqlValue BuildStatus where
+instance Convertible SqlValue MergeRequestStatus where
   safeConvert (SqlByteString str) =
     safeConvert (SqlString $ UTF8.toString str)
   safeConvert (SqlString str) =
     case readMaybe str of
-      Nothing -> convError "Invalid BuildStatus" (SqlString str)
+      Nothing -> convError "Invalid MergeRequestStatus" (SqlString str)
       Just status -> pure status
-  safeConvert x = convError "Invalid BuildStatus" x
+  safeConvert x = convError "Invalid MergeRequestStatus" x
 
 -- | Merge status of a MR
 data MergeStatus

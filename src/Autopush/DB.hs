@@ -29,6 +29,7 @@ module Autopush.DB
 , getActionableMergeRequests
 , getMergeRequestEffectiveStatus
 , getNewestActiveMergeRequest
+, resetBuildInfo
 
 -- * Jobs
 , pushJob
@@ -137,6 +138,24 @@ initializeDB dirname = withDB dirname $ \conn ->
     WHERE id = :mrID
 |]
 
+-- | Get a 'MergeRequest' by head commit ID
+[yesh1|
+  -- name:getMergeRequestByHead :: MergeRequest
+  -- :head :: SHA
+  SELECT id
+       , parent
+       , status
+       , rebased
+       , branch
+       , orig_base
+       , orig_head
+       , current_head
+       , merged
+       , build_id
+    FROM merge_requests
+    WHERE orig_head = :head
+|]
+
 getExistingMergeRequest :: MergeRequestID -> SQLite.Connection -> IO MergeRequest
 getExistingMergeRequest mid conn =
   assertRow $ getMergeRequest mid conn
@@ -210,13 +229,6 @@ reparentMergeRequest m conn = do
   updateMergeRequest m { mrParent = parentID } conn
   getExistingMergeRequest (mrID m) conn
 
--- | Create a new merge request for a given SHA.
-createMergeRequest :: ManagedBranch -> SHA -> SQLite.Connection -> IO MergeRequest
-createMergeRequest branch head conn = do
-  assertOneRow $ createMergeRequest_ branch head conn
-  insertID <- assertRow $ lastMergeRequestID_ conn
-  assertRow $ getMergeRequest insertID conn
-
 -- | Reset a merge request to \"pristine\" state (as if it had just been
 -- created).
 [yesh1|
@@ -225,16 +237,29 @@ createMergeRequest branch head conn = do
   UPDATE merge_requests
   SET parent = NULL
     , merged = 0
+    , status = 'Runnable'
   WHERE id = :m.mrID
   LIMIT 1
 |]
+
+-- | Create a new merge request for a given SHA.
+createMergeRequest :: ManagedBranch -> SHA -> SQLite.Connection -> IO MergeRequest
+createMergeRequest branch head conn = do
+  getMergeRequestByHead head conn >>= \case
+    Just m -> do
+      bailMergeRequest m conn
+      return m
+    Nothing -> do
+      assertOneRow $ createMergeRequest_ branch head conn
+      insertID <- assertRow $ lastMergeRequestID_ conn
+      assertRow $ getMergeRequest insertID conn
 
 [yesh1|
   -- name:updateMergeRequest_ :: rowcount Int
   -- :m :: MergeRequest
   UPDATE merge_requests
     SET parent = :m.mrParent
-      , status = :m.mrBuildStatus
+      , status = :m.mrMergeRequestStatus
       , rebased = :m.mrRebased
       , orig_base = :m.mrOriginalBase
       , orig_head = :m.mrOriginalHead
@@ -267,14 +292,14 @@ updateMergeRequest m conn = do
     WHERE merged = 0
 |]
 
-getMergeRequestEffectiveStatus :: MergeRequest -> SQLite.Connection -> IO BuildStatus
+getMergeRequestEffectiveStatus :: MergeRequest -> SQLite.Connection -> IO MergeRequestStatus
 getMergeRequestEffectiveStatus m conn = go m
   where
     go m
-      | isFailedStatus (mrBuildStatus m) =
-          return (mrBuildStatus m)
+      | isFailedStatus (mrMergeRequestStatus m) =
+          return (mrMergeRequestStatus m)
       | mrParent m == Nothing =
-          return (mrBuildStatus m)
+          return (mrMergeRequestStatus m)
       | otherwise = do
           parentMay <- getMergeRequestParent m conn
           case parentMay of
@@ -282,7 +307,7 @@ getMergeRequestEffectiveStatus m conn = go m
               return FailedDeps
             Just parent -> do
               parentStatus <- go parent
-              return $ applyParentStatus parentStatus (mrBuildStatus m)
+              return $ applyParentStatus parentStatus (mrMergeRequestStatus m)
 
 -- | Fetch the last insert-ID (SQLite-ism)
 [yesh1|
@@ -367,6 +392,12 @@ type MaybeWorkerID = Maybe WorkerID
   ORDER BY id
 |]
 
+[yesh1|
+  -- name:resetBuildInfo :: rowcount Int
+  UPDATE merge_requests
+  SET build_id = NULL
+|]
+
 pushJob :: MergeRequestID -> SQLite.Connection -> IO JobID
 pushJob mrID conn = do
   assertOneRow $ insertJob_ mrID conn
@@ -389,3 +420,4 @@ abandonJob jobID conn = do
 finishJob :: JobID -> SQLite.Connection -> IO ()
 finishJob jobID conn = do
   void $ finishJob_ jobID conn
+

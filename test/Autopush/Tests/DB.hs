@@ -39,7 +39,7 @@ testCreateMR = testCase "create merge request" $ withTempDB $ \conn -> do
         MergeRequest
           { mrID = 1
           , mrParent = Nothing
-          , mrBuildStatus = Runnable
+          , mrMergeRequestStatus = Runnable
           , mrRebased = NotRebased
           , mrBranch = branch
           , mrOriginalBase = Nothing
@@ -60,7 +60,7 @@ testUpdateMR = testCase "update merge request" $ withTempDB $ \conn -> do
         MergeRequest
           { mrID = 1
           , mrParent = Nothing
-          , mrBuildStatus = Passed
+          , mrMergeRequestStatus = Passed
           , mrRebased = Rebased
           , mrBranch = branch
           , mrOriginalBase = Nothing
@@ -84,7 +84,7 @@ testCreateDependentMR = testCase "create dependent merge request" $ withTempDB $
         MergeRequest
           { mrID = 2
           , mrParent = Just 1
-          , mrBuildStatus = Runnable
+          , mrMergeRequestStatus = Runnable
           , mrRebased = NotRebased
           , mrBranch = branch
           , mrOriginalBase = Nothing
@@ -109,7 +109,7 @@ testCreateDependentMRSkip = testCase "create dependent merge request (skip one)"
         MergeRequest
           { mrID = 3
           , mrParent = Just 1
-          , mrBuildStatus = Runnable
+          , mrMergeRequestStatus = Runnable
           , mrRebased = NotRebased
           , mrBranch = branch
           , mrOriginalBase = Nothing
@@ -136,7 +136,7 @@ testCreateDependentMRSkipOther = testCase "create dependent merge request (skip 
         MergeRequest
           { mrID = 3
           , mrParent = Just 2
-          , mrBuildStatus = Runnable
+          , mrMergeRequestStatus = Runnable
           , mrRebased = NotRebased
           , mrBranch = branch
           , mrOriginalBase = Nothing
@@ -161,7 +161,7 @@ testGetActionableMR = testCase "get actionable MRs" $ withTempDB $ \conn -> do
         [ MergeRequest
             { mrID = 1
             , mrParent = Nothing
-            , mrBuildStatus = Runnable
+            , mrMergeRequestStatus = Runnable
             , mrRebased = NotRebased
             , mrBranch = branch
             , mrOriginalBase = Nothing
@@ -185,7 +185,7 @@ testGetActionableMRFilter = testCase "get actionable MRs (skip non-actionable)" 
         [ MergeRequest
             { mrID = 1
             , mrParent = Nothing
-            , mrBuildStatus = Runnable
+            , mrMergeRequestStatus = Runnable
             , mrRebased = NotRebased
             , mrBranch = branch
             , mrOriginalBase = Nothing

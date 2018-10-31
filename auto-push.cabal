@@ -28,6 +28,7 @@ library
                        Autopush.Hooks
                        Autopush.Actions
                        Autopush.BuildDriver
+                       Autopush.BuildDrivers.Script
                        Autopush.Run
   ghc-options:         -Wall
   other-extensions:    GeneralizedNewtypeDeriving

@@ -22,6 +22,7 @@ import Data.Maybe
 import Control.Exception
 import System.Directory
 import System.FilePath
+import Data.String (IsString (fromString))
 
 -- | The 'origin' remote
 originRemote :: Remote
@@ -176,7 +177,8 @@ scheduleMR reqId = db $ \conn -> do
     rebaseResult <- do
       -- Fetch and rebase branch
       Git.fetch repo originRemote [toOrigRef reqId]
-      Git.fetch repo originRemote [brRef]
+      -- Git.fetch repo originRemote [brRef]
+
       -- Make sure we're in detached head state, otherwise git will try to
       -- rebase the current branch, which might be nonsensical
       Git.checkout repo True (CommitSha brHead)
@@ -212,7 +214,7 @@ startBuild reqId = do
     liftIO $
       updateMergeRequest
         m { mrBuildID = Just buildID
-          , mrBuildStatus = Running
+          , mrMergeRequestStatus = Running
           }
         conn
   return ()
@@ -249,7 +251,7 @@ execJob worker jobID m = do
     let reqId = mrID m
     liftIO . logMsg $ "Starting job " ++ show jobID ++ ", MR: " ++ show reqId
     liftIO . logMsg $ show m
-    case (mrOriginalBase m, mrRebased m, mrBuildStatus m, mrBuildID m) of
+    case (mrOriginalBase m, mrRebased m, mrMergeRequestStatus m, mrBuildID m) of
       (Nothing, _, _, _) -> do
         -- fresh MR, need to prepare it
         prepareMR reqId
@@ -267,12 +269,28 @@ execJob worker jobID m = do
 
       (_, _, Running, Just buildID) -> do
         -- Already running, check status
+        liftIO $ logMsg $
+          "Checking build status for " ++
+          Text.unpack (unBuildID buildID)
         check <- view $ buildDriver . buildStatus
         newStatus <- liftIO (check buildID)
+        liftIO $ logMsg $
+          "New status: " ++ show newStatus
         case newStatus of
-          FailedBuild -> do
+          BuildFailed msg -> do
+            liftIO $ logMsg $
+              "*** Build failure ***\n" ++
+              "Build: " ++ Text.unpack (unBuildID buildID) ++ "\n" ++
+              "MR: " ++ show reqId ++ "\n" ++
+              msg
             db $ handleFailedBuild m
-          Passed -> do
+          BuildCancelled -> do
+            liftIO $ logMsg $
+              "*** Build cancelled ***\n" ++
+              "Build: " ++ Text.unpack (unBuildID buildID) ++ "\n" ++
+              "MR: " ++ show reqId
+            db $ handleFailedBuild m
+          BuildPassed -> do
             db $ handlePassedBuild m
             requeue jobID reqId
           _ ->
@@ -281,9 +299,13 @@ execJob worker jobID m = do
       (_, _, Running, Nothing) -> do
         -- No idea what's going on here; log & skip
         liftIO $ logMsg $ "No build found for MR " ++ show reqId
-        db $ liftIO . finishJob jobID
+        db $
+          liftIO .
+            updateMergeRequest m { mrMergeRequestStatus = Runnable }
+        requeue jobID reqId
 
       (_, _, Passed, _) -> do
+        liftIO $ logMsg $ "Build passed, trying to merge " ++ show reqId
         db $ checkMergeableBuild m
 
       _ ->
@@ -291,20 +313,24 @@ execJob worker jobID m = do
 
 checkMergeableBuild :: MergeRequest -> SQLite.Connection -> Action ()
 checkMergeableBuild m conn = do
+  let reqId = mrID m
   pMay <- liftIO $ getMergeRequestParent m conn
   case pMay of
-    Nothing ->
+    Nothing -> do
+      liftIO $ logMsg $ "No parent, merging " ++ show reqId
       mergeGoodRequest m conn
-    Just p ->
-      if mrMerged p == Merged then
+    Just p -> do
+      if mrMerged p == Merged then do
+        liftIO $ logMsg $ "Parent merged, merging " ++ show reqId
         mergeGoodRequest m conn
-      else
+      else do
+        liftIO $ logMsg $ "Parent not merged, requeue " ++ show reqId
         void $ liftIO $ pushJob (mrID m) conn
 
 handlePassedBuild :: MergeRequest -> SQLite.Connection -> Action ()
 handlePassedBuild m conn = do
   liftIO $ updateMergeRequest
-    m { mrBuildStatus = Passed
+    m { mrMergeRequestStatus = Passed
       , mrBuildID = Nothing
       }
     conn
@@ -312,12 +338,12 @@ handlePassedBuild m conn = do
 handleFailedBuild :: MergeRequest -> SQLite.Connection -> Action ()
 handleFailedBuild m conn = do
   cancelBuild <- view $ buildDriver . buildCancel
-  let go :: MergeRequest -> BuildStatus -> Action ()
+  let go :: MergeRequest -> MergeRequestStatus -> Action ()
       go m newStatus = do
         liftIO $
           updateMergeRequest
             m { mrParent = Nothing
-              , mrBuildStatus = newStatus
+              , mrMergeRequestStatus = newStatus
               , mrBuildID = Nothing
               }
             conn

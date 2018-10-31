@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS jobs
     ( id INTEGER PRIMARY KEY
 
     -- Which merge request to look at
-    , merge_request INTEGER NOT NULL UNIQUE
+    , merge_request INTEGER NOT NULL
 
     -- Set this to call dibs on a job while working on it
     , worker TEXT NULL
