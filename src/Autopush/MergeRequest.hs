@@ -43,6 +43,8 @@ data MergeRequest
         -- ^ SHA of the original base commit
       , mrOriginalHead :: SHA
         -- ^ SHA of the original branch head
+      , mrCurrentBase :: Maybe SHA
+        -- ^ SHA of the current (rebased) base commit
       , mrCurrentHead :: SHA
         -- ^ SHA of the current (rebased) branch head
       , mrMerged :: MergeStatus

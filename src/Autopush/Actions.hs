@@ -131,7 +131,12 @@ prepareMR mid = db $ \conn -> do
       repo
       (CommitRef . branchRef . upstreamBranch $ mrBranch m)
       (CommitSha $ mrOriginalHead m)
-  liftIO $ updateMergeRequest m { mrOriginalBase = Just baseCommit } conn
+  liftIO $
+    updateMergeRequest
+      m { mrOriginalBase = Just baseCommit
+        , mrCurrentBase = Just baseCommit
+        }
+      conn
   return ()
 
 -- | Get the rebase target for a merge request. If the merge request has any
@@ -192,13 +197,19 @@ scheduleMR reqId = db $ \conn -> do
     case rebaseResult of
       Just commits -> do
         let head' = headCommit commits
+            base' = baseCommit commits
         logMsg $ "Rebased " ++ show reqId ++ ": " ++ show commits
-
-        updateMergeRequest m { mrRebased = Rebased, mrCurrentHead = head' } conn
 
         -- Push rebased commits
         Git.push repo originRemote (CommitSha head') (toBuildRef reqId)
         logMsg $ "Pushed rebase " ++ show reqId ++ ": " ++ show commits
+
+        updateMergeRequest
+          m { mrRebased = Rebased
+            , mrCurrentHead = head'
+            , mrCurrentBase = Just base'
+            }
+          conn
 
       Nothing ->
         updateMergeRequest m { mrRebased = RebaseFailed } conn
@@ -361,7 +372,7 @@ mergeGoodRequest :: MergeRequest -> SQLite.Connection -> Action ()
 mergeGoodRequest m conn = do
   withGitServer $ \repo -> liftIO $ do
     updateRefs repo
-      [ UpdateRef (branchRef . upstreamBranch $ mrBranch m) (mrCurrentHead m) Nothing -- (Just baseSha)
+      [ UpdateRef (branchRef . upstreamBranch $ mrBranch m) (mrCurrentHead m) (mrCurrentBase m)
       , DeleteRef (toBuildRef $ mrID m) Nothing
       , DeleteRef (toOrigRef $ mrID m) Nothing
       ]

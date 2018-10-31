@@ -127,11 +127,17 @@ checkout repo force commit =
 
 checkoutBranch :: GitRepo
                -> Branch
+               -> Maybe (Remote, Branch)
                -> IO ()
-checkoutBranch repo branch =
+checkoutBranch repo branch Nothing =
     void $ runGit repo "checkout" [ "-b", b ] ""
   where
     b = T.unpack $ getBranchName branch
+checkoutBranch repo branch (Just (Remote remoteName, rbranch)) =
+    void $ runGit repo "checkout" [ "-b", b, "--track", t ] ""
+  where
+    b = T.unpack $ getBranchName branch
+    t = T.unpack $ remoteName <> "/" <> getBranchName branch
 
 mergeBase :: GitRepo -> Commit -> Commit -> IO SHA
 mergeBase repo a b =

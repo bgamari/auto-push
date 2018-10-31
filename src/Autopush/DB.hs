@@ -131,6 +131,7 @@ initializeDB dirname = withDB dirname $ \conn ->
        , branch
        , orig_base
        , orig_head
+       , current_base
        , current_head
        , merged
        , build_id
@@ -149,6 +150,7 @@ initializeDB dirname = withDB dirname $ \conn ->
        , branch
        , orig_base
        , orig_head
+       , current_base
        , current_head
        , merged
        , build_id
@@ -171,6 +173,7 @@ getExistingMergeRequest mid conn =
        , branch
        , orig_base
        , orig_head
+       , current_base
        , current_head
        , merged
        , build_id
@@ -189,6 +192,7 @@ getExistingMergeRequest mid conn =
        , branch
        , orig_base
        , orig_head
+       , current_base
        , current_head
        , merged
        , build_id
@@ -209,6 +213,7 @@ getExistingMergeRequest mid conn =
        , branch
        , orig_base
        , orig_head
+       , current_base
        , current_head
        , merged
        , build_id
@@ -263,6 +268,7 @@ createMergeRequest branch head conn = do
       , rebased = :m.mrRebased
       , orig_base = :m.mrOriginalBase
       , orig_head = :m.mrOriginalHead
+      , current_base = :m.mrCurrentBase
       , current_head = :m.mrCurrentHead
       , merged = :m.mrMerged
       , build_id = :m.mrBuildID
@@ -285,6 +291,7 @@ updateMergeRequest m conn = do
        , branch
        , orig_base
        , orig_head
+       , current_base
        , current_head
        , merged
        , build_id
@@ -335,6 +342,7 @@ getMergeRequestEffectiveStatus m conn = go m
        , m.branch
        , m.orig_base
        , m.orig_head
+       , m.current_base
        , m.current_head
        , m.merged
        , m.build_id
@@ -420,4 +428,3 @@ abandonJob jobID conn = do
 finishJob :: JobID -> SQLite.Connection -> IO ()
 finishJob jobID conn = do
   void $ finishJob_ jobID conn
-

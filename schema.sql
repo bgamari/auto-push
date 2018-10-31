@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS merge_requests
     , orig_head TEXT NOT NULL UNIQUE
 
     -- SHA of the MR head commit as currently merged
+    , current_base TEXT NULL
+
+    -- SHA of the MR head commit as currently merged
     , current_head TEXT NOT NULL
 
     -- 1 = merged

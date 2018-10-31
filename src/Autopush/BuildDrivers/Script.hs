@@ -53,9 +53,17 @@ mkScriptBuildDriver numWorkers scriptFilename = do
                 (do
                   wrepo <- Git.clone repo dir
                   case Git.isBranch ref of
-                    Just branch -> Git.checkoutBranch wrepo branch
-                    Nothing -> error "Expected ref to be a branch"
+                    Nothing ->
+                      error $ "Expected branch, but found " ++ Git.showRef ref
+                    Just branch ->
+                      Git.checkoutBranch
+                        wrepo
+                        branch
+                        (Just (Git.Remote "origin", branch))
+                  Git.resolveRef wrepo (Ref "HEAD") >>= logMsg . ("HEAD: " ++) . show
                   updateStatus buildID BuildRunning
+                  logMsg $ printf "--- running: %s ---" (dir </> scriptFilename)
+                  readFile (dir </> scriptFilename) >>= logMsg
                   (exitCode, stdoutData, stderrData) <-
                     readProcessWithExitCode (dir </> scriptFilename) [] ""
                   case exitCode of
