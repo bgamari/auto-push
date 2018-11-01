@@ -8,6 +8,7 @@ import Options.Applicative
 import Git (cwdRepo)
 import Autopush.Hooks
 import Autopush.Run
+import Autopush.Server (runServer)
 
 modes :: Parser (IO ())
 modes =
@@ -15,6 +16,7 @@ modes =
     $ command "post-receive" (info postReceiveMode fullDesc)
     <> command "install" (info installMode fullDesc)
     <> command "run" (info runMode fullDesc)
+    <> command "api" (info apiMode fullDesc)
 
 printError :: IO () -> IO ()
 printError = handle printExc
@@ -30,6 +32,9 @@ installMode = pure . printError $ installHooks cwdRepo
 
 runMode :: Parser (IO ())
 runMode = pure . printError $ run cwdRepo defRunConfig
+
+apiMode :: Parser (IO ())
+apiMode = pure . printError $ runServer cwdRepo
 
 main :: IO ()
 main = do

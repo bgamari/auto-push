@@ -3,6 +3,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 -- | Defines the data model for merge requests.
 module Autopush.MergeRequest
@@ -17,6 +20,8 @@ import Database.YeshQL.HDBC.SqlRow.TH (makeSqlRow)
 import Database.YeshQL.HDBC.SqlRow.Class (SqlRow)
 import Data.ByteString.UTF8 as UTF8
 import Data.String
+import Data.Aeson
+import GHC.Generics
 
 import Autopush.MergeBranch
 import Autopush.BuildDriver (BuildID)
@@ -52,14 +57,15 @@ data MergeRequest
       , mrBuildID :: Maybe BuildID
         -- ^ Most recently started build, as reported by the CI driver
       }
-      deriving (Show, Eq)
+      deriving (Show, Eq, Generic)
+      deriving anyclass (ToJSON, FromJSON)
 
 -- | What a MR is rebased onto.
 data RebaseStatus
   = NotRebased
   | Rebased
   | RebaseFailed
-  deriving (Show, Read, Eq, Ord, Enum, Bounded)
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic, ToJSON, FromJSON)
 
 instance Convertible RebaseStatus SqlValue where
   safeConvert NotRebased = pure $ SqlInt32 0
@@ -83,7 +89,7 @@ data MergeRequestStatus
   | Passed -- ^ Build has passed
   | FailedBuild -- ^ Failed to build
   | FailedDeps -- ^ A dependency failed to build
-  deriving (Show, Read, Eq, Ord, Enum, Bounded)
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic, ToJSON, FromJSON)
 
 isFailedStatus :: MergeRequestStatus -> Bool
 isFailedStatus FailedBuild = True
@@ -131,7 +137,7 @@ data MergeStatus
   = NotMerged
   | Merged
   | MergeFailed
-  deriving (Show, Read, Eq, Ord, Enum, Bounded)
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic, ToJSON, FromJSON)
 
 instance Convertible MergeStatus SqlValue where
   safeConvert NotMerged = pure $ SqlInt32 0

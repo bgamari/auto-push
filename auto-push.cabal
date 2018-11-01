@@ -30,6 +30,7 @@ library
                        Autopush.BuildDriver
                        Autopush.BuildDrivers.Script
                        Autopush.Run
+                       Autopush.Server
   ghc-options:         -Wall
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.8 && <4.13,

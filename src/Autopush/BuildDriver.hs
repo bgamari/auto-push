@@ -11,9 +11,10 @@ import Database.HDBC (SqlValue)
 import Data.String
 import qualified Data.Text as Text
 import Data.Text (Text)
+import Data.Aeson
 
 newtype BuildID = BuildID { unBuildID :: Text }
-  deriving (Show, Eq, IsString, Ord)
+  deriving (Show, Eq, IsString, Ord, ToJSON, FromJSON)
 
 instance Convertible SqlValue BuildID where
   safeConvert = fmap BuildID . safeConvert

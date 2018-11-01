@@ -18,6 +18,7 @@ module Autopush.DB
 , initializeRepoDB
 
 -- * Merge Requests
+, listMergeRequests
 , createMergeRequest
 , updateMergeRequest
 , reparentMergeRequest
@@ -137,6 +138,14 @@ initializeDB dirname = withDB dirname $ \conn ->
        , build_id
     FROM merge_requests
     WHERE id = :mrID
+|]
+
+-- | List merge request IDs
+[yesh1|
+  -- name:listMergeRequests :: [(MergeRequestID)]
+  SELECT id
+    FROM merge_requests
+    ORDER BY id
 |]
 
 -- | Get a 'MergeRequest' by head commit ID
