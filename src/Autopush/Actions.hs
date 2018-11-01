@@ -56,6 +56,15 @@ runAction srepo workingCopyPool bdriver action = do
   let context = ActionContext srepo workingCopyPool bdriver tdepthVar
   runReaderT action context
 
+catchAction :: Exception e => Action a -> (e -> Action a) -> Action a
+catchAction action handle = do
+  context <- ask
+  let actionIO = runReaderT action context
+      handleIO e = runReaderT (handle e) context
+  liftIO $ actionIO `catch` handleIO
+  
+
+
 mkWorkingCopies :: GitRepo -> FilePath -> Int -> IO (TVar [GitRepo])
 mkWorkingCopies srepo dir num = do
   newTVarIO =<< (forM [1..num] $ \i -> do
@@ -86,7 +95,6 @@ withWorkingCopy action = do
   context <- ask
   let actionIO = \repo -> runReaderT (action repo) context
   liftIO $ withWorkingCopyIO pool actionIO
-
 
 -- | Transactionally run a database action. Supports a poor man's emulation of
 -- nested transactions.
@@ -370,7 +378,7 @@ handleFailedBuild m conn = do
 
 mergeGoodRequest :: MergeRequest -> SQLite.Connection -> Action ()
 mergeGoodRequest m conn = do
-  withGitServer $ \repo -> liftIO $ do
+  flip catchAction handle $ withGitServer $ \repo -> liftIO $ do
     updateRefs repo
       [ UpdateRef (branchRef . upstreamBranch $ mrBranch m) (mrCurrentHead m) (mrCurrentBase m)
       , DeleteRef (toBuildRef $ mrID m) Nothing
@@ -379,3 +387,10 @@ mergeGoodRequest m conn = do
     updateMergeRequest
       m { mrMerged = Merged }
       conn
+  where
+    handle :: SomeException -> Action ()
+    handle e = liftIO $ do
+      logMsg (show e)
+      updateMergeRequest
+        m { mrMerged = MergeFailed }
+        conn
