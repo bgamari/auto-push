@@ -1,4 +1,5 @@
 {-#LANGUAGE TemplateHaskell #-}
+{-#LANGUAGE ScopedTypeVariables #-}
 module Autopush.Run
 where
 
@@ -18,6 +19,7 @@ import Control.Monad
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Monad.IO.Class
+import Control.Exception
 import System.IO.Temp
 import Utils
 
@@ -58,7 +60,11 @@ run repo config = do
     replicateConcurrently_ (config ^. numWorkers) $ do
       workerID <- liftIO $ randomToken 8
       forever $ do
-        runAction repo pool driver $ runNextJob workerID
+        catch
+          (runAction repo pool driver $ runNextJob workerID)
+          (\(e :: SomeException) -> logMsg . show $ e)
+        -- Randomize delay between runs a bit, to keep worker activity
+        -- spread out
         liftIO $ do
           waitMilliseconds <- randomRIO (1000,2000)
           threadDelay (waitMilliseconds * 1000)
