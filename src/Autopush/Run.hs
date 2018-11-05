@@ -27,17 +27,35 @@ data RunConfig
   = RunConfig
       { _numWorkers :: Int
       , _numWorkingCopies :: Int
-      , _numBuildWorkers :: Int
+      , _builderConfig :: BuilderConfig
       }
+
+data BuilderConfig
+  = BuilderConfigScript ScriptBuilderConfig
+
+data ScriptBuilderConfig
+  = ScriptBuilderConfig
+      { _numScriptBuilders :: Int
+      , _buildScriptName :: FilePath
+      }
+
 makeLenses ''RunConfig
+makeLenses ''BuilderConfig
+makeLenses ''ScriptBuilderConfig
+
+defBuilderConfig :: BuilderConfig
+defBuilderConfig =
+  BuilderConfigScript $
+    ScriptBuilderConfig 2 ".autopush-build.sh"
 
 defRunConfig :: RunConfig
 defRunConfig =
   RunConfig
     { _numWorkers = 1
     , _numWorkingCopies = 3
-    , _numBuildWorkers = 2
+    , _builderConfig = defBuilderConfig
     }
+
 
 dummyBuildDriver :: BuildDriver
 dummyBuildDriver = do
@@ -51,12 +69,16 @@ dummyBuildDriver = do
         return ()
     }
 
+mkBuildDriver :: BuilderConfig -> IO BuildDriver
+mkBuildDriver (BuilderConfigScript sc) =
+  mkScriptBuildDriver (sc ^. numScriptBuilders) (sc ^. buildScriptName)
+
 run :: GitRepo -> RunConfig -> IO ()
 run repo config = do
   withRepoDB repo . transactionally $ resetBuildInfo
   withSystemTempDirectory "autopush-test-git" $ \dir -> do
     pool <- mkWorkingCopies repo dir (config ^. numWorkingCopies)
-    driver <- mkScriptBuildDriver (config ^. numBuildWorkers) ".autopush-build.sh"
+    driver <- mkBuildDriver (config ^. builderConfig)
     replicateConcurrently_ (config ^. numWorkers) $ do
       workerID <- liftIO $ randomToken 8
       forever $ do

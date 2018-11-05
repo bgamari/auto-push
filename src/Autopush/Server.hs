@@ -10,17 +10,16 @@ import qualified Network.Wai.Handler.Warp as Warp
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Servant
 import Servant.Server
-import Servant.Client
 import Data.Maybe
 
 import Git
 import Autopush.MergeRequest
 import Autopush.MergeBranch
+import Utils
 import qualified Autopush.DB as DB
 import Autopush.DB (withRepoDB)
 
-serverPort :: Int
-serverPort = 8880
+type Port = Int
 
 type Api =
           "merge"  :> Capture "merge" MergeRequestID
@@ -40,27 +39,28 @@ server repo =
         (liftIO . withRepoDB repo $ \conn -> do
           DB.getMergeRequest reqId conn)
 
-reqGetMergeRequest :: MergeRequestID -> ClientM MergeRequest
-reqListMergeRequests :: ClientM [MergeRequestID]
-
-reqGetMergeRequest :<|> reqListMergeRequests
-    = client api
-
-request :: ClientM a -> IO a
-request action = do
-    mgr <- newManager defaultManagerSettings
-    let url = BaseUrl Http "localhost" serverPort ""
-    res <- runClientM action (ClientEnv mgr url Nothing)
-    case res of
-      Left err -> fail $ "Server.request: "++show err
-      Right a -> return a
+-- reqGetMergeRequest :: MergeRequestID -> ClientM MergeRequest
+-- reqListMergeRequests :: ClientM [MergeRequestID]
+-- 
+-- reqGetMergeRequest :<|> reqListMergeRequests
+--     = client api
+-- 
+-- request :: ClientM a -> IO a
+-- request action = do
+--     mgr <- newManager defaultManagerSettings
+--     let url = BaseUrl Http "localhost" serverPort ""
+--     res <- runClientM action (ClientEnv mgr url Nothing)
+--     case res of
+--       Left err -> fail $ "Server.request: "++show err
+--       Right a -> return a
 
 api :: Proxy Api
 api = Proxy
 
-runServer :: GitRepo -> IO ()
-runServer repo = do
+runServer :: Port -> GitRepo -> IO ()
+runServer serverPort repo = do
     let app :: Application
         app = serve api (server repo)
+    logMsg $ "Starting HTTP server on port " ++ show serverPort
     Warp.run serverPort app
 
