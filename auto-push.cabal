@@ -16,12 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Git
-                       PushMerge
-                       PushMerge.Types
                        Utils
-                       Hooks
-                       Server
-                       RpcChannel
                        Autopush.MergeRequest
                        Autopush.MergeBranch
                        Autopush.DB
@@ -76,15 +71,6 @@ executable auto-push
                        auto-push,
                        optparse-applicative >= 0.12,
                        text >= 1.2
-
--- A server for testing
-executable test-server
-  main-is:             TestServer.hs
-  ghc-options:         -threaded -Wall
-  default-language:    Haskell2010
-  build-depends:       base >=4.8 && <4.13,
-                       process,
-                       auto-push
 
 -- Tests
 test-suite tests
