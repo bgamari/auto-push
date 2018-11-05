@@ -1,0 +1,3 @@
+[submodule "circlehs"]
+	path = circlehs
+	url = https://github.com/bgamari/circlehs

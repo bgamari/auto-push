@@ -6,10 +6,16 @@ import Control.Monad
 import Data.Monoid
 import Options.Applicative
 import Data.Maybe
+import qualified Data.Text as Text
 
 import Git (cwdRepo, GitRepo (..))
 import Autopush.Hooks
-import Autopush.Run (RunConfig (..), BuilderConfig (..), ScriptBuilderConfig (..), defBuilderConfig, run)
+import Autopush.Run ( RunConfig (..)
+                    , BuilderConfig (..)
+                    , ScriptBuilderConfig (..)
+                    , CircleCIBuilderConfig (..)
+                    , defBuilderConfig, run
+                    )
 import Autopush.Server (runServer, Port)
 
 data BuilderConfigType
@@ -25,6 +31,9 @@ data RawBuilderConfig
       , rbcUsername :: Maybe String
       , rbcPassword :: Maybe String
       , rbcApiToken :: Maybe String
+      , rbcGithubUsername :: Maybe String
+      , rbcGithubProject :: Maybe String
+      , rbcGithubPushRemote :: Maybe String
       }
 
 modes :: Parser (IO ())
@@ -158,6 +167,30 @@ builderApiToken =
     <> help "API token to pass to build driver"
     )
 
+builderGithubUsername :: Parser String
+builderGithubUsername =
+  option str
+    ( long "github-user"
+    <> metavar "USERNAME"
+    <> help "GitHub user (used for external CI services)"
+    )
+
+builderGithubProject :: Parser String
+builderGithubProject =
+  option str
+    ( long "github-project"
+    <> metavar "PROJECT"
+    <> help "GitHub project name (used for external CI services)"
+    )
+
+builderGithubPushRemote :: Parser String
+builderGithubPushRemote =
+  option str
+    ( long "github-remote"
+    <> metavar "REMOTE"
+    <> help "Remote name under which the GitHub clone is known locally (used for external CI services)"
+    )
+
 parseRawBuilderConfigType :: String -> Maybe BuilderConfigType
 parseRawBuilderConfigType "script" = Just ScriptBuilderConfigTy
 parseRawBuilderConfigType "circleci" = Just CircleCIBuilderConfigTy
@@ -171,6 +204,9 @@ rawBuilderConfig =
                    <*> optional builderUsername
                    <*> optional builderPassword
                    <*> optional builderApiToken
+                   <*> optional builderGithubUsername
+                   <*> optional builderGithubProject
+                   <*> optional builderGithubPushRemote
 
 fromRawBuilder :: RawBuilderConfig -> BuilderConfig
 fromRawBuilder rb = case rbcType rb of
@@ -179,6 +215,14 @@ fromRawBuilder rb = case rbcType rb of
       ScriptBuilderConfig
         (1 ?? rbcNumBuildWorkers rb)
         (".autopush-build" ?? rbcBuildScript rb)
+  CircleCIBuilderConfigTy ->
+    BuilderConfigCircleCI $
+      CircleCIBuilderConfig
+        { _cciUsername = Text.pack ("" ?? rbcGithubUsername rb)
+        , _cciProject = Text.pack ("" ?? rbcGithubProject rb)
+        , _cciToken = Text.pack ("" ?? rbcApiToken rb)
+        , _cciPushRemote = Text.pack ("github" ?? rbcGithubPushRemote rb)
+        }
   x ->
     error $ "Not implemented: builder type " ++ show x
 

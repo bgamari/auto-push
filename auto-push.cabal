@@ -29,6 +29,7 @@ library
                        Autopush.Actions
                        Autopush.BuildDriver
                        Autopush.BuildDrivers.Script
+                       Autopush.BuildDrivers.CircleCI
                        Autopush.Run
                        Autopush.Server
   ghc-options:         -Wall
@@ -39,6 +40,7 @@ library
                        aeson >= 1.0,
                        async >= 2.1,
                        bytestring >=0.10 && <0.11,
+                       circlehs,
                        containers >= 0.5,
                        convertible >=1.1.1.0 && <=1.2,
                        directory >= 1.2,
@@ -71,8 +73,9 @@ executable auto-push
   ghc-options:         -threaded -Wall
   default-language:    Haskell2010
   build-depends:       base >=4.8 && <4.13,
+                       auto-push,
                        optparse-applicative >= 0.12,
-                       auto-push
+                       text >= 1.2
 
 -- A server for testing
 executable test-server

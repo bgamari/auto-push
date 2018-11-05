@@ -7,9 +7,11 @@ import Autopush.Actions
 import Autopush.MergeRequest
 import Autopush.BuildDriver
 import Autopush.BuildDrivers.Script
+import Autopush.BuildDrivers.CircleCI
 import Autopush.DB
 
 import Git (GitRepo)
+import qualified Git
 import System.Random
 import qualified Data.Text as Text
 import Data.Text (Text)
@@ -32,6 +34,7 @@ data RunConfig
 
 data BuilderConfig
   = BuilderConfigScript ScriptBuilderConfig
+  | BuilderConfigCircleCI CircleCIBuilderConfig
 
 data ScriptBuilderConfig
   = ScriptBuilderConfig
@@ -39,9 +42,18 @@ data ScriptBuilderConfig
       , _buildScriptName :: FilePath
       }
 
+data CircleCIBuilderConfig
+  = CircleCIBuilderConfig
+      { _cciUsername :: Text
+      , _cciProject :: Text
+      , _cciToken :: Text
+      , _cciPushRemote :: Text
+      }
+
 makeLenses ''RunConfig
 makeLenses ''BuilderConfig
 makeLenses ''ScriptBuilderConfig
+makeLenses ''CircleCIBuilderConfig
 
 defBuilderConfig :: BuilderConfig
 defBuilderConfig =
@@ -70,8 +82,16 @@ dummyBuildDriver = do
     }
 
 mkBuildDriver :: BuilderConfig -> IO BuildDriver
-mkBuildDriver (BuilderConfigScript sc) =
-  mkScriptBuildDriver (sc ^. numScriptBuilders) (sc ^. buildScriptName)
+mkBuildDriver (BuilderConfigScript config) =
+  mkScriptBuildDriver
+    (config ^. numScriptBuilders)
+    (config ^. buildScriptName)
+mkBuildDriver (BuilderConfigCircleCI config) =
+  mkCircleCIBuildDriver
+    (config ^. cciUsername)
+    (config ^. cciProject)
+    (Git.Remote $ config ^. cciPushRemote)
+    (config ^. cciToken)
 
 run :: GitRepo -> RunConfig -> IO ()
 run repo config = do
