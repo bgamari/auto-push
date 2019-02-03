@@ -50,6 +50,7 @@ main = do
     let repo :: Git.GitRepo
         repo = Git.GitRepo "."
 
+    initializeRepoDB repo
     withRepoDB repo $ \conn -> do
         mgr <- TLS.newTlsManager
         let env = Env { gitlabBaseUrl = GL.httpsBaseUrl (configHostname cfg)
