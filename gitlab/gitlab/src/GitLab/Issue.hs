@@ -5,7 +5,34 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
 
-module GitLab.Tickets where
+module GitLab.Issue
+  ( -- * Queries
+    IssueResp(..)
+  , getIssue
+    -- * Creation
+  , CreateIssue(..)
+  , createIssue
+    -- * Editing
+  , EditIssue(..)
+  , editIssue
+    -- * Deletion
+  , deleteIssue
+    -- * Issue links
+  , createIssueLink
+  , listIssueLinks
+    -- * Subscription
+  , subscribeIssue
+    -- * Notes
+    -- ** Creation
+  , CreateIssueNote(..)
+  , createIssueNote
+    -- ** Queries
+  , IssueNoteResp(..)
+  , getNewestIssueNote
+  , getNewestIssueNotes
+  , listIssueNotesPage
+  , listIssueNotes
+  ) where
 
 import Control.Monad
 import qualified Data.Text as T
@@ -22,7 +49,6 @@ import Servant.API
 import Servant.Client
 import GitLab.Common
 import Control.Monad.IO.Class (liftIO)
-import Logging
 
 ----------------------------------------------------------------------
 -- getIssue
@@ -262,69 +288,6 @@ deleteIssue :: AccessToken -> Maybe UserId -> ProjectId -> IssueIid -> ClientM (
 deleteIssue tok sudo prj iid = void $ client (Proxy :: Proxy DeleteIssueAPI) (Just tok) prj iid sudo
 
 ----------------------------------------------------------------------
--- createMilestone
-----------------------------------------------------------------------
-
-type CreateMilestoneAPI =
-    GitLabRoot :> "projects"
-    :> Capture "id" ProjectId :> "milestones"
-    :> ReqBody '[JSON] CreateMilestone
-    :> SudoParam
-    :> Post '[JSON] CreateMilestoneResp
-
-data CreateMilestone
-    = CreateMilestone { cmTitle :: Text
-                      , cmDescription :: Text
-                      , cmDueDate :: Maybe UTCTime
-                      , cmStartDate :: Maybe UTCTime
-                      }
-                      deriving (Show)
-
-instance ToJSON CreateMilestone where
-    toJSON CreateMilestone{..} = object
-        [ "title" .= cmTitle
-        , "description" .= cmDescription
-        , "due_date" .= cmDueDate
-        , "start_date" .= cmStartDate
-        ]
-
-data CreateMilestoneResp = CreateMilestoneResp MilestoneId
-
-instance FromJSON CreateMilestoneResp where
-    parseJSON = withObject "create milestone response" $ \o -> do
-        CreateMilestoneResp <$> o .: "id"
-
-createMilestone :: Logger
-                -> AccessToken -> Maybe UserId
-                -> ProjectId -> CreateMilestone
-                -> ClientM MilestoneId
-createMilestone logger tok sudo prj cm = do
-    liftIO $ writeLog logger "CREATE-MILESTONE" $ show cm
-    CreateMilestoneResp mid <- client (Proxy :: Proxy CreateMilestoneAPI) (Just tok) prj cm sudo
-    return mid
-
-----------------------------------------------------------------------
--- listMilestones
-----------------------------------------------------------------------
-
-type ListMilestonesAPI =
-    GitLabRoot :> "projects"
-    :> Capture "id" ProjectId :> "milestones"
-    :> QueryParam "per_page" Int
-    :> Get '[JSON] [Milestone]
-
-data Milestone = Milestone Text MilestoneId
-
-instance FromJSON Milestone where
-    parseJSON = withObject "milestone" $ \o -> do
-        Milestone <$> o .: "title" <*> o .: "id"
-
-listMilestones :: AccessToken
-               -> ProjectId -> ClientM [Milestone]
-listMilestones tok prj = client (Proxy :: Proxy ListMilestonesAPI) (Just tok) prj (Just 100)
-
-
-----------------------------------------------------------------------
 -- createIssueLink
 ----------------------------------------------------------------------
 
@@ -358,13 +321,11 @@ instance FromJSON CreateIssueLinkResp where
     parseJSON = withObject "create issueLink response" $ \o -> do
         CreateIssueLinkResp <$> o .: "id"
 
-createIssueLink :: Logger
-                -> AccessToken -> Maybe UserId
+createIssueLink :: AccessToken -> Maybe UserId
                 -> ProjectId -> IssueIid
                 -> CreateIssueLink
                 -> ClientM IssueLinkId
-createIssueLink logger tok sudo prj iid cm = do
-    liftIO $ writeLog logger "CREATE-ISSUE-LINK" $ show cm
+createIssueLink tok sudo prj iid cm = do
     CreateIssueLinkResp mid <- client (Proxy :: Proxy CreateIssueLinkAPI) (Just tok) prj iid cm sudo
     return mid
 
@@ -418,14 +379,12 @@ instance FromJSON SubscribeIssueResp where
     parseJSON = withObject "subscribe response" $ \o -> do
         pure SubscribeIssueResp
 
-subscribeIssue :: Logger
-               -> AccessToken
+subscribeIssue :: AccessToken
                -> Maybe UserId
                -> ProjectId
                -> IssueIid
                -> ClientM ()
-subscribeIssue logger tok sudo prj iid = do
-    liftIO $ writeLog logger "SUBSCRIBE-ISSUE" $ show iid
+subscribeIssue tok sudo prj iid = do
     SubscribeIssueResp <- client (Proxy :: Proxy SubscribeIssueAPI) (Just tok) prj iid SubscribeIssue sudo
     return ()
 

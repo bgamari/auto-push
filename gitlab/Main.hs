@@ -15,7 +15,7 @@ import qualified Network.HTTP.Client.TLS as TLS
 import qualified Network.HTTP.Client as HTTP
 import Options.Applicative
 
-import GitLab.MergeRequests as GL
+import GitLab.MergeRequest as GL
 import GitLab.Common as GL
 import GitLab.Commit as GL
 import GitLab.Pipeline as GL

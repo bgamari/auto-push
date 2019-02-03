@@ -65,6 +65,14 @@ instance ToJSON StatusEvent where
     toJSON CloseEvent  = "close"
     toJSON ReopenEvent = "reopen"
 
+data Visibility = Private | Internal | Public
+                deriving (Show)
+
+instance ToJSON Visibility where
+    toJSON Private  = "private"
+    toJSON Internal = "internal"
+    toJSON Public   = "public"
+
 mkLabel :: Text -> Labels
 mkLabel = Labels . S.singleton
 

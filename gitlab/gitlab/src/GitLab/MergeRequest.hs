@@ -5,10 +5,12 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
 
-module GitLab.MergeRequests 
-    ( getMergeRequestsByAssignee
-    , MergeRequestResp(..)
+module GitLab.MergeRequest
+    ( -- * Queries
+      MergeRequestResp(..)
     , MergeRequestState(..)
+    , getMergeRequestsByAssignee
+      -- * Notes
     , createMergeRequestNote
     ) where
 
@@ -34,7 +36,7 @@ import Control.Monad.IO.Class (liftIO)
 
 type GetMergeRequestsByAssignee =
     GitLabRoot :> "merge_requests"
-    :> QueryString "assignee_id" UserId
+    :> QueryParam "assignee_id" UserId
     :> Get '[JSON] [MergeRequestResp]
 
 data MergeRequestState = Opened | Closed | Locked | Merged
@@ -77,7 +79,7 @@ instance FromJSON MergeRequestResp where
 
 getMergeRequestsByAssignee :: AccessToken -> UserId -> ClientM [MergeRequestResp]
 getMergeRequestsByAssignee tok uid =
-    client (Proxy :: Proxy GetMergeRequestsByAssignee) (Just tok) uid
+    client (Proxy :: Proxy GetMergeRequestsByAssignee) (Just tok) (Just uid)
 
 ----------------------------------------------------------------------
 -- createMergeRequestNote

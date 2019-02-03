@@ -4,7 +4,14 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
 
-module GitLab.Project where
+module GitLab.Project 
+  ( -- * Queries
+    ProjectResp(..)
+  , getProject
+    -- * Members
+  , AccessLevel(..)
+  , addProjectMember
+  ) where
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -23,14 +30,6 @@ import Data.Time.Clock
 import Servant.API
 import Servant.Client
 import GitLab.Common
-
-data Visibility = Private | Internal | Public
-                deriving (Show)
-
-instance ToJSON Visibility where
-    toJSON Private  = "private"
-    toJSON Internal = "internal"
-    toJSON Public   = "public"
 
 ----------------------------------------------------------------------
 -- getProject
@@ -61,43 +60,37 @@ getProject tok sudo prj = do
     client (Proxy :: Proxy GetProjectAPI) (Just tok) prj sudo
 
 ----------------------------------------------------------------------
--- createSnippet
+-- addProjectMember
 ----------------------------------------------------------------------
 
-data CreateSnippet
-    = CreateSnippet { csTitle :: Text
-                    , csFileName :: Text
-                    , csDescription :: Maybe Text
-                    , csCode :: Text
-                    , csVisibility :: Visibility
-                    }
-    deriving (Show)
+type AddProjectMemberAPI =
+    GitLabRoot :> "projects"
+    :> Capture "id" ProjectId :> "members"
+    :> ReqBody '[JSON] AddProjectMember
+    :> Post '[JSON] Object
 
-instance ToJSON CreateSnippet where
-    toJSON CreateSnippet{..} = object
-        [ "title" .= csTitle
-        , "file_name" .=  csFileName
-        , "description" .=  csDescription
-        , "code" .= csCode
-        , "visibility" .= csVisibility
+data AccessLevel = Guest | Reporter | Developer | Maintainer | Owner
+
+instance ToJSON AccessLevel where
+    toJSON l = toJSON $ case l of
+                          Guest      -> 10 :: Int
+                          Reporter   -> 20
+                          Developer  -> 30
+                          Maintainer -> 40
+                          Owner      -> 50
+
+data AddProjectMember = AddProjectMember UserId AccessLevel
+
+instance ToJSON AddProjectMember where
+    toJSON (AddProjectMember uid access) = object
+        [ "user_id" .= uid
+        , "access_level" .= access
         ]
 
-data CreateSnippetResp = CreateSnippetResp SnippetId
-
-instance FromJSON CreateSnippetResp where
-    parseJSON = withObject "create snippet response" $ \o -> do
-        CreateSnippetResp <$> o .: "id"
-
-type CreateSnippetAPI =
-    GitLabRoot :> "projects"
-    :> Capture "id" ProjectId :> "snippets"
-    :> SudoParam
-    :> ReqBody '[JSON] CreateSnippet
-    :> Post '[JSON] CreateSnippetResp
-
-createSnippet :: AccessToken -> Maybe UserId -> ProjectId
-              -> CreateSnippet -> ClientM SnippetId
-createSnippet tok sudo prj cs = do
-    CreateSnippetResp sid <- client (Proxy :: Proxy CreateSnippetAPI) (Just tok) prj sudo cs
-    return sid
+addProjectMember :: AccessToken -> ProjectId
+                 -> UserId -> AccessLevel -> ClientM ()
+addProjectMember tok prj uid access = do
+    client (Proxy :: Proxy AddProjectMemberAPI) (Just tok) prj
+        $ AddProjectMember uid access
+    return ()
 

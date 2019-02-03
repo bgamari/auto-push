@@ -5,7 +5,14 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module GitLab.Users where
+module GitLab.User
+  ( -- * Queries
+    findUsersByEmail
+  , findUsersByUsername
+    -- * Creation
+  , CreateUser(..)
+  , createUser 
+  ) where
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -69,12 +76,6 @@ createUser tok cu = do
     user <- client (Proxy :: Proxy CreateUserAPI) (Just tok) cu
     return $ userId user
 
-createUserMaybe :: AccessToken -> CreateUser -> ClientM (Maybe UserId)
-createUserMaybe tok cu =
-    (Just <$> createUser tok cu)
-    `catchError`
-    (const $ return Nothing)
-
 
 ----------------------------------------------------------------------
 -- findUserByUsername
@@ -88,14 +89,6 @@ type FindUserByUsernameAPI =
 findUsersByUsername :: AccessToken -> Text -> ClientM [User]
 findUsersByUsername tok username =
     client (Proxy :: Proxy FindUserByUsernameAPI) (Just tok) (Just username)
-
-findUserByUsername :: AccessToken -> Text -> ClientM (Maybe User)
-findUserByUsername tok username = do
-    res <- findUsersByUsername tok username
-    return $ case res of
-               [] -> Nothing
-               [user] -> Just user
-               _ -> error $ "Multiple users with id "<>show username
 
 ----------------------------------------------------------------------
 -- findUserByEmail
@@ -118,38 +111,3 @@ findUsersByEmail :: AccessToken -> Text -> ClientM [User]
 findUsersByEmail tok email = do
     client (Proxy :: Proxy FindUserByEmailAPI) (Just tok) (Just email)
 
-
-----------------------------------------------------------------------
--- addProjectMember
-----------------------------------------------------------------------
-
-type AddProjectMemberAPI =
-    GitLabRoot :> "projects"
-    :> Capture "id" ProjectId :> "members"
-    :> ReqBody '[JSON] AddProjectMember
-    :> Post '[JSON] Object
-
-data AccessLevel = Guest | Reporter | Developer | Maintainer | Owner
-
-instance ToJSON AccessLevel where
-    toJSON l = toJSON $ case l of
-                          Guest      -> 10 :: Int
-                          Reporter   -> 20
-                          Developer  -> 30
-                          Maintainer -> 40
-                          Owner      -> 50
-
-data AddProjectMember = AddProjectMember UserId AccessLevel
-
-instance ToJSON AddProjectMember where
-    toJSON (AddProjectMember uid access) = object
-        [ "user_id" .= uid
-        , "access_level" .= access
-        ]
-
-addProjectMember :: AccessToken -> ProjectId
-                 -> UserId -> AccessLevel -> ClientM ()
-addProjectMember tok prj uid access = do
-    client (Proxy :: Proxy AddProjectMemberAPI) (Just tok) prj
-        $ AddProjectMember uid access
-    return ()
