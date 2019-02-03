@@ -282,6 +282,10 @@ execJob worker jobID m = do
         startBuild reqId
         requeue jobID reqId
 
+      (_, _, MergeCancelled, _) -> do
+        -- We were asked to cancel the merge, abort it.
+        db $ handleFailedBuild m
+
       (_, _, Running, Just buildID) -> do
         -- Already running, check status
         liftIO $ logMsg $

@@ -87,6 +87,7 @@ data MergeRequestStatus
   = Runnable -- ^ No build started yet
   | Running -- ^ Build running (or queued)
   | Passed -- ^ Build has passed
+  | MergeCancelled -- ^ We were asked not to merge MR
   | FailedBuild -- ^ Failed to build
   | FailedDeps -- ^ A dependency failed to build
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic, ToJSON, FromJSON)

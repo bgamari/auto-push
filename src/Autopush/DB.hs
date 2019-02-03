@@ -23,6 +23,7 @@ module Autopush.DB
 , updateMergeRequest
 , reparentMergeRequest
 , bailMergeRequest
+, cancelMergeRequest
 , getMergeRequest
 , getExistingMergeRequest
 , getMergeRequestParent
@@ -253,6 +254,17 @@ reparentMergeRequest m conn = do
   SET parent = NULL
     , merged = 0
     , status = 'Runnable'
+  WHERE id = :m.mrID
+  LIMIT 1
+|]
+
+-- | Cancel a merge request.
+[yesh1|
+  -- name:cancelMergeRequest :: rowcount Int
+  -- :m :: MergeRequest
+  UPDATE merge_requests
+  SET merged = 0
+    , status = 'MergeCancelled'
   WHERE id = :m.mrID
   LIMIT 1
 |]
