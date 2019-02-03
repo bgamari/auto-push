@@ -52,7 +52,7 @@ postReceive repo = do
     logMsg $ show updates
 
     -- Reset push branch back to former state
-    let updates' = [ UpdateRef ref old Nothing
+    let updates' = [ UpdateRef ref old NoExpectation
                    | (old, _new, ref) <- updates
                    , Just branch <- pure $ isBranch ref
                    , Just _ <- pure $ isMergeBranch branch

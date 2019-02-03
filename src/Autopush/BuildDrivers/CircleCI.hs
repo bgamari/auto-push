@@ -44,7 +44,7 @@ mkCircleCIBuildDriver username projectName pushRemote apiToken = do
         sha <- Git.resolveRef repo ref
 
         -- Push to whatever remote is configured for CircleCI
-        Git.push repo pushRemote (Git.CommitSha sha) ref
+        Git.pushWithLease repo pushRemote [Git.UpdateRef ref sha Git.NoExpectation]
         
         -- Now tell CircleCI to actually build it
         let tbo :: CI.Build.TriggerBuildOptions

@@ -27,12 +27,12 @@ module Git
     , checkoutBranch
     , updateRefs
     , UpdateRefAction(..)
+    , Expectation(..)
     , squash
       -- * Remotes
     , Remote(..)
     , gitRepoToRemote
-    , push
-    , push'
+    , pushWithLease
     , fetch
     , remoteUpdate
       -- * Exceptions
@@ -202,9 +202,13 @@ showSHA (SHA ref) = T.unpack . T.strip $ ref
 showRef :: Ref -> String
 showRef (Ref ref) = T.unpack . T.strip $ ref
 
-data UpdateRefAction = UpdateRef Ref SHA (Maybe SHA)
+data Expectation a = NoExpectation
+                   | Expect a
+                   deriving (Show)
+
+data UpdateRefAction = UpdateRef Ref SHA (Expectation SHA)
                      | CreateRef Ref SHA
-                     | DeleteRef Ref (Maybe SHA)
+                     | DeleteRef Ref (Expectation SHA)
                      deriving (Show)
 
 zeroSHA :: SHA
@@ -217,15 +221,15 @@ updateRefs repo actions =
   where
     sRef = T.unpack . getRef
     sSHA = T.unpack . getSHA
-    toLine (UpdateRef ref new (Just old)) =
+    toLine (UpdateRef ref new (Expect old)) =
         unwords ["update", sRef ref, sSHA new, sSHA old]
-    toLine (UpdateRef ref new Nothing) =
+    toLine (UpdateRef ref new NoExpectation) =
         unwords ["update", sRef ref, sSHA new]
     toLine (CreateRef ref new) =
         unwords ["create", sRef ref, sSHA new]
-    toLine (DeleteRef ref (Just old)) =
+    toLine (DeleteRef ref (Expect old)) =
         unwords ["delete", sRef ref, sSHA old]
-    toLine (DeleteRef ref Nothing) =
+    toLine (DeleteRef ref NoExpectation) =
         unwords ["delete", sRef ref]
 
 -- | A remote git repository.
@@ -235,16 +239,29 @@ newtype Remote = Remote T.Text
 gitRepoToRemote :: GitRepo -> Remote
 gitRepoToRemote (GitRepo repo) = Remote $ T.pack repo
 
-push :: GitRepo -> Remote -> Commit -> Ref -> IO ()
-push repo = push' repo False
-
-push' :: GitRepo -> Bool -> Remote -> Commit -> Ref -> IO ()
-push' repo forced (Remote remote) commit ref =
-    void $ runGit repo "push" args "" 
+pushWithLease :: GitRepo -> Remote
+              -> [UpdateRefAction]
+              -> IO ()
+pushWithLease repo (Remote remote) updates = do
+    void $ runGit repo "push" args ""
   where
-    args = [ T.unpack remote
-           , showCommit commit ++ ":" ++ showRef ref
-           ] ++ [ "--force" | forced ]
+    args = [ T.unpack remote ] ++ foldMap toArgs updates
+    toArgs (UpdateRef ref new (Expect expected)) =
+      [ showSHA new ++ ":" ++ showRef ref
+      , "--force-with-lease=" ++ showRef ref ++ ":" ++ showSHA expected
+      ]
+    toArgs (UpdateRef ref new NoExpectation) =
+      [ showSHA new ++ ":" ++ showRef ref ]
+    toArgs (CreateRef ref new) =
+      [ showSHA new ++ ":" ++ showRef ref
+      , "--force-with-lease=" ++ showRef ref ++ ":"
+      ]
+    toArgs (DeleteRef ref NoExpectation) =
+      [ ":" ++ showRef ref ]
+    toArgs (DeleteRef ref (Expect expected)) =
+      [ ":" ++ showRef ref
+      , "--force-with-lease=" ++ showRef ref ++ ":" ++ showSHA expected
+      ]
 
 clone :: GitRepo -> FilePath -> IO GitRepo
 clone repo dest = do
@@ -262,7 +279,7 @@ remoteUpdate repo (Remote remote) =
 
 -- | Squash a range of commits, keeping the commit message from the first
 -- commit in the range.
-squash :: GitRepo 
+squash :: GitRepo
        -> Commit   -- ^ base commit (exclusive)
        -> Commit   -- ^ head commit (inclusive)
        -> IO SHA
@@ -274,7 +291,7 @@ squash repo base head = do
     void $ runGit repo "commit" [ "--amend", "--no-edit" ] ""
     resolveRef repo (Ref "HEAD")
 
-revList :: GitRepo 
+revList :: GitRepo
         -> Commit   -- ^ base commit (exclusive)
         -> Commit   -- ^ head commit (inclusive)
         -> IO [SHA]

@@ -58,7 +58,7 @@ catchAction action handle = do
   let actionIO = runReaderT action context
       handleIO e = runReaderT (handle e) context
   liftIO $ actionIO `catch` handleIO
-  
+
 
 
 mkWorkingCopies :: GitRepo -> FilePath -> Int -> IO (TVar [GitRepo])
@@ -127,10 +127,10 @@ withGitServer action = view serverRepo >>= action
 prepareMR :: MergeRequestID -> Action ()
 prepareMR mid = db $ \conn -> do
   m <- liftIO (getExistingMergeRequest mid conn)
-  baseCommit <- withGitServer $ \repo -> liftIO $ do
-    Git.updateRefs
-      repo
-      [ UpdateRef (toOrigRef (mrID m)) (mrOriginalHead m) Nothing ]
+  baseCommit <- withWorkingCopy $ \repo -> liftIO $ do
+    Git.pushWithLease
+      repo originRemote
+      [ Git.UpdateRef (toOrigRef (mrID m)) (mrOriginalHead m) Git.NoExpectation ]
     Git.mergeBase
       repo
       (CommitRef . branchRef . upstreamBranch $ mrBranch m)
@@ -205,7 +205,7 @@ scheduleMR reqId = db $ \conn -> do
         logMsg $ "Rebased " ++ show reqId ++ ": " ++ show commits
 
         -- Push rebased commits
-        Git.push' repo True originRemote (CommitSha head') (toBuildRef reqId)
+        Git.pushWithLease repo originRemote [Git.UpdateRef (toBuildRef reqId) head' NoExpectation]
         logMsg $ "Pushed rebase " ++ show reqId ++ ": " ++ show commits
 
         updateMergeRequest
@@ -379,11 +379,14 @@ handleFailedBuild m conn = do
 mergeGoodRequest :: MergeRequest -> SQLite.Connection -> Action ()
 mergeGoodRequest m conn = do
   flip catchAction handle $ withGitServer $ \repo -> liftIO $ do
-    updateRefs repo
-      [ UpdateRef (branchRef . upstreamBranch $ mrBranch m) (mrCurrentHead m) (mrCurrentBase m)
-      , DeleteRef (toBuildRef $ mrID m) Nothing
-      , DeleteRef (toOrigRef $ mrID m) Nothing
+    Git.pushWithLease repo originRemote
+      [ UpdateRef (branchRef . upstreamBranch $ mrBranch m)
+                  (mrCurrentHead m)
+                  (maybe (error "mergeGoodRequest: impossible") Git.Expect $ mrCurrentBase m)
+      , DeleteRef (toBuildRef $ mrID m) NoExpectation
+      , DeleteRef (toOrigRef $ mrID m) NoExpectation
       ]
+
     updateMergeRequest
       m { mrMerged = Merged }
       conn

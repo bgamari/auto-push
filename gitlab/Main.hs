@@ -55,8 +55,7 @@ main :: IO ()
 main = do
     cfg <- execParser $ info (helper <*> config) mempty
 
-    repo <- Git.GitRepo . projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
-
+    let repo = Git.GitRepo "."
     A.initializeRepoDB repo
     DB.initializeRepoDB repo
 
@@ -137,7 +136,7 @@ handleMergeRequest env@(Env{..}) mr
         -- Squash if desired
         sha' <- if mrSquash mr
                    then do
-                     base <- Git.mergeBase gitRepo (Git.CommitSha sha)  
+                     base <- Git.mergeBase gitRepo (Git.CommitSha sha)
                                                    (Git.CommitRef $ Git.branchRef $ upstreamBranch managedBranch)
                      Git.squash gitRepo (Git.CommitSha base) (Git.CommitSha sha)
                    else return sha
@@ -177,7 +176,8 @@ gitlabBuildDriver env@Env{..} =
     buildStart repo ref = liftClientM env $ do
       sha <- liftIO $ Git.resolveRef repo ref
       projRemote <- projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
-      liftIO $ Git.push' repo True (Git.Remote projRemote) (Git.CommitSha sha) ref
+      liftIO $ Git.pushWithLease repo (Git.Remote projRemote)
+        [ Git.UpdateRef ref sha Git.NoExpectation]
       commit <- GL.getCommit gitlabToken Nothing gitlabProject (GL.Sha $ Git.getSHA sha)
       let pipelineId = commitLastPipeline commit
       return $ pipelineToBuildId $ pipelineId
