@@ -26,12 +26,10 @@ import Autopush.MergeBranch as A
 import Autopush.BuildDriver
 import qualified Git
 
-repo :: Git.GitRepo
-repo = undefined
-
 data Config = Config { configGitlabToken :: AccessToken
                      , configBotUser :: UserId
                      , configProject :: ProjectId
+                     , configHostname :: String
                      }
 
 config :: Parser Config
@@ -42,18 +40,23 @@ config =
                     (long "user" <> short 'u' <> metavar "USER-ID" <> help "Gitlab bot user ID")
          <*> option (ProjectId <$> auto)
                     (long "project" <> short 'p' <> metavar "PROJECT-ID" <> help "Project to monitor")
+         <*> option str
+                    (long "hostname" <> short 'H' <> metavar "HOSTNAME" <> help "GitLab host name")
 
 main :: IO ()
 main = do
     cfg <- execParser $ info (helper <*> config) mempty
 
+    let repo :: Git.GitRepo
+        repo = Git.GitRepo "."
+
     withRepoDB repo $ \conn -> do
         mgr <- TLS.newTlsManager
-        let env = Env { gitlabBaseUrl = GL.httpsBaseUrl "gitlab.haskell.org"
+        let env = Env { gitlabBaseUrl = GL.httpsBaseUrl (configHostname cfg)
                       , gitlabToken = configGitlabToken cfg
                       , gitlabUser = configBotUser cfg
                       , gitlabProject = configProject cfg
-                      , gitRepo = Git.GitRepo "."
+                      , gitRepo = repo
                       , httpManager = mgr
                       , dbConn = conn
                       }
@@ -91,16 +94,21 @@ handleMergeRequest env@(Env{..}) mr = do
         return ()
       Nothing
         | Just managedBranch <- isInterestingBranch $ GL.mrTargetBranch mr -> do
-          -- TODO: squash
           projRemote <- liftClientM env $ projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
           Git.fetch gitRepo (Git.Remote projRemote) [Git.Ref $ Git.getSHA sha] -- HACK
+
+          -- Squash if desired
           sha' <- if mrSquash mr
                      then do
                        base <- Git.mergeBase gitRepo (Git.CommitSha sha)  
                                                      (Git.CommitRef $ Git.branchRef $ upstreamBranch managedBranch)
                        Git.squash gitRepo (Git.CommitSha base) (Git.CommitSha sha)
                      else return sha
+
           mr'' <- A.createMergeRequest managedBranch sha' dbConn
+          let noteBody = "I've added this to my merge queue."
+          liftClientM env 
+            $ GL.createMergeRequestNote gitlabToken Nothing (mrId mr) noteBody
           print mr''
           return ()
         | otherwise -> return ()
