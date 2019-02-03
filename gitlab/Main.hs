@@ -6,6 +6,7 @@ module Main (main) where
 
 import Control.Exception
 import Control.Concurrent (threadDelay)
+import qualified Control.Concurrent.Async as Async
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -23,12 +24,15 @@ import GitLab.Commit as GL
 import GitLab.Pipeline as GL
 import GitLab.Project as GL
 
+import qualified Autopush.Actions as A
+import Autopush.Run as A.Run
 import Autopush.DB as A
 import Autopush.MergeBranch as A
 import Autopush.MergeRequest as A
 import Autopush.BuildDriver
 import qualified Git
 import DB
+import Utils (logMsg)
 
 data Config = Config { configGitlabToken :: AccessToken
                      , configBotUser :: UserId
@@ -56,6 +60,7 @@ main = do
 
     A.initializeRepoDB repo
     DB.initializeRepoDB repo
+
     withRepoDB repo $ \conn -> do
         mgr <- TLS.newTlsManager
         let env = Env { gitlabBaseUrl = GL.httpsBaseUrl (configHostname cfg)
@@ -66,6 +71,14 @@ main = do
                       , httpManager = mgr
                       , dbConn = conn
                       }
+        let buildDriver = gitlabBuildDriver env
+        workingCopyPool <- A.mkWorkingCopies repo "tmp" 4
+        let runConfig = A.Run.RunConfig { _numWorkers = 4
+                                        , _numWorkingCopies = 4
+                                        , _builderConfig = BuilderConfigOther buildDriver
+                                        }
+        server <- Async.async $ A.Run.run repo runConfig
+        Async.link server
         forever $ do poll env >> threadDelay (15*1000*1000)
 
 data Env = Env { gitlabBaseUrl :: BaseUrl
@@ -93,43 +106,57 @@ poll env = handle onError $ do
     onError (SomeException e) = print e
 
 handleMergeRequest :: Env -> GL.MergeRequestResp -> IO ()
-handleMergeRequest env@(Env{..}) mr = do
-    let sha = Git.SHA $ GL.getSha $ GL.mrSha mr
-    mmr <- A.getMergeRequestByHead sha dbConn
-    case mmr of
-      Just mr' -> do
-        -- Nothing to do
-        Just glmr <- DB.getGitLabMergeRequest (A.mrID mr') dbConn
-        if  | sha /= glmrOriginalHead glmr -> do
-                leaveNote $ "Head commit changed, aborting merge."
+handleMergeRequest env@(Env{..}) mr
+  | Just managedBranch <- isInterestingBranch $ GL.mrTargetBranch mr = do
+    mb_glmr <- DB.getGitLabMergeRequest (GL.mrId mr) dbConn
+    case mb_glmr of
+      -- This is the first time we have seen this MR, kick it off
+      Nothing   -> handleNewMergeRequest managedBranch
+      Just glmr -> do
+        Just mmr <- A.getMergeRequestByHead sha dbConn
+        print (glmr, mr, mmr)
+        handleExistingMergeRequest managedBranch glmr mmr
 
-            | DB.glmrLastCommentStatus glmr /= A.mrMergeRequestStatus mr' -> do
-                leaveNote $ T.pack $ "Current state " ++ show (A.mrMergeRequestStatus mr')
-                void $ DB.setLastCommentStatus (A.mrID mr') (A.mrMergeRequestStatus mr') dbConn
-
-            | otherwise -> return ()
-
-      Nothing
-        | Just managedBranch <- isInterestingBranch $ GL.mrTargetBranch mr -> do
-          projRemote <- liftClientM env $ projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
-          Git.fetch gitRepo (Git.Remote projRemote) [Git.Ref $ Git.getSHA sha] -- HACK
-
-          -- Squash if desired
-          sha' <- if mrSquash mr
-                     then do
-                       base <- Git.mergeBase gitRepo (Git.CommitSha sha)  
-                                                     (Git.CommitRef $ Git.branchRef $ upstreamBranch managedBranch)
-                       Git.squash gitRepo (Git.CommitSha base) (Git.CommitSha sha)
-                     else return sha
-
-          mr' <- A.createMergeRequest managedBranch sha' dbConn
-          void $ DB.insertGitLabMergeRequest (A.mrID mr') sha (A.mrMergeRequestStatus mr') dbConn
-          leaveNote $ "I've added this to my merge queue."
-          return ()
-        | otherwise -> return ()
   where
-    leaveNote text =
+    handleExistingMergeRequest :: ManagedBranch -> GitLabMergeRequest -> A.MergeRequest -> IO ()
+    handleExistingMergeRequest managedBranch glmr mr'
+      | sha /= DB.glmrOriginalHeadSha glmr = do
+        leaveNote $ "Head commit has changed, aborting merge."
+        assertOneRow $ A.cancelMergeRequest mr' dbConn
+
+      | DB.glmrLastCommentStatus glmr /= A.mrMergeRequestStatus mr' = do
+        leaveNote $ T.pack $ "Current state " ++ show (A.mrMergeRequestStatus mr')
+        DB.setLastCommentStatus (A.mrID mr') (A.mrMergeRequestStatus mr') dbConn
+
+      | otherwise = return ()
+
+    handleNewMergeRequest :: ManagedBranch -> IO ()
+    handleNewMergeRequest managedBranch = do
+        projRemote <- liftClientM env $ projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
+        Git.fetch gitRepo (Git.Remote projRemote) [Git.Ref $ Git.getSHA sha] -- HACK
+
+        -- Squash if desired
+        sha' <- if mrSquash mr
+                   then do
+                     base <- Git.mergeBase gitRepo (Git.CommitSha sha)  
+                                                   (Git.CommitRef $ Git.branchRef $ upstreamBranch managedBranch)
+                     Git.squash gitRepo (Git.CommitSha base) (Git.CommitSha sha)
+                   else return sha
+
+        withTransaction dbConn $ const $ do
+            mr' <- A.createMergeRequest managedBranch sha' dbConn
+            DB.insertGitLabMergeRequest (A.mrID mr') (GL.mrId mr) sha (A.mrMergeRequestStatus mr') dbConn
+            A.pushJob (mrID mr') dbConn
+        leaveNote $ "I have added this to my merge queue."
+
+    sha = Git.SHA $ GL.getSha $ GL.mrSha mr
+
+    leaveNote text = do
+      logMsg $ "Note on " ++ show (mrId mr) ++ ": " ++ T.unpack text
       void $ liftClientM env $ GL.createMergeRequestNote gitlabToken Nothing (mrProjectId mr) (mrIid mr) text
+
+handleMergeRequest _ mr = do
+    logMsg $ show (mrId mr) ++ " isn't on an interesting branch"
 
 isInterestingBranch :: T.Text -> Maybe ManagedBranch
 isInterestingBranch branch
@@ -164,6 +191,7 @@ gitlabBuildDriver env@Env{..} =
     buildStatus bid = liftClientM env $ do
       let pipelineId = buildIdToPipeline bid
       pipeline <- getPipeline gitlabToken gitlabProject pipelineId
+      liftIO $ print pipeline
       let status = case GL.pipelineStatus pipeline of
                       GL.Pending  -> BuildPending
                       GL.Running  -> BuildRunning

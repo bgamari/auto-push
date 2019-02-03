@@ -41,6 +41,10 @@ module Autopush.DB
 , finishJob
 , listJobs
 , cancelJobsFor
+
+
+-- * Miscellaneous utilities
+, assertOneRow
 )
 where
 
@@ -255,7 +259,6 @@ reparentMergeRequest m conn = do
     , merged = 0
     , status = 'Runnable'
   WHERE id = :m.mrID
-  LIMIT 1
 |]
 
 -- | Cancel a merge request.
@@ -266,7 +269,6 @@ reparentMergeRequest m conn = do
   SET merged = 0
     , status = 'MergeCancelled'
   WHERE id = :m.mrID
-  LIMIT 1
 |]
 
 -- | Create a new merge request for a given SHA.

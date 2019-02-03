@@ -33,6 +33,7 @@ data RunConfig
 data BuilderConfig
   = BuilderConfigScript ScriptBuilderConfig
   | BuilderConfigCircleCI CircleCIBuilderConfig
+  | BuilderConfigOther BuildDriver
 
 data ScriptBuilderConfig
   = ScriptBuilderConfig
@@ -90,6 +91,8 @@ mkBuildDriver (BuilderConfigCircleCI config) =
     (config ^. cciProject)
     (Git.Remote $ config ^. cciPushRemote)
     (config ^. cciToken)
+mkBuildDriver (BuilderConfigOther driver) =
+    return driver
 
 run :: GitRepo -> RunConfig -> IO ()
 run repo config = do

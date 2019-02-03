@@ -33,7 +33,7 @@ newtype MergeRequestID = MergeRequestID Integer
 instance Convertible MergeRequestID SqlValue where
     safeConvert (MergeRequestID x) = pure $ SqlInteger x
 instance Convertible SqlValue MergeRequestID where
-    safeConvert (SqlInteger x) = pure $ MergeRequestID x
+    safeConvert = fmap MergeRequestID . safeConvert 
 
 newtype JobID = JobID Integer
               deriving stock (Show, Eq, Ord)
@@ -43,7 +43,7 @@ newtype JobID = JobID Integer
 instance Convertible JobID SqlValue where
     safeConvert (JobID x) = pure $ SqlInteger x
 instance Convertible SqlValue JobID where
-    safeConvert (SqlInteger x) = pure $ JobID x
+    safeConvert = fmap JobID . safeConvert
 
 newtype WorkerID = WorkerID Text
                  deriving stock (Show, Eq, Ord)
