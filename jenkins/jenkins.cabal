@@ -17,10 +17,10 @@ library
   other-extensions:    DataKinds, TypeOperators, OverloadedStrings, GeneralizedNewtypeDeriving, RecordWildCards
   build-depends:       base >=4.10 && <4.11,
                        case-insensitive >=1.2 && <1.3,
-                       exceptions >=0.8 && <0.9,
+                       exceptions >=0.8 && <0.11,
                        bytestring >=0.10 && <0.11,
                        text >=1.2 && <1.3,
-                       aeson >=1.2 && <1.3,
+                       aeson >=1.2 && <1.5,
                        wreq >=0.5 && <0.6,
                        lens >=4.16 && <4.17
   default-language:    Haskell2010
