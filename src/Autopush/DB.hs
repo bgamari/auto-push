@@ -27,6 +27,7 @@ module Autopush.DB
 , getExistingMergeRequest
 , getMergeRequestParent
 , getMergeRequestChild
+, getMergeRequestByHead
 , getActionableMergeRequests
 , getMergeRequestEffectiveStatus
 , getNewestActiveMergeRequest
