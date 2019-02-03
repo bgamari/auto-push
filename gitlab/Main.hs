@@ -1,8 +1,10 @@
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Main (main) where
 
+import Control.Exception
 import Control.Concurrent (threadDelay)
 import Control.Monad
 import Control.Monad.IO.Class
@@ -23,8 +25,10 @@ import GitLab.Project as GL
 
 import Autopush.DB as A
 import Autopush.MergeBranch as A
+import Autopush.MergeRequest as A
 import Autopush.BuildDriver
 import qualified Git
+import DB
 
 data Config = Config { configGitlabToken :: AccessToken
                      , configBotUser :: UserId
@@ -50,7 +54,8 @@ main = do
     let repo :: Git.GitRepo
         repo = Git.GitRepo "."
 
-    initializeRepoDB repo
+    A.initializeRepoDB repo
+    DB.initializeRepoDB repo
     withRepoDB repo $ \conn -> do
         mgr <- TLS.newTlsManager
         let env = Env { gitlabBaseUrl = GL.httpsBaseUrl (configHostname cfg)
@@ -61,7 +66,7 @@ main = do
                       , httpManager = mgr
                       , dbConn = conn
                       }
-        forever $ do poll env >> threadDelay (60*1000*1000)
+        forever $ do poll env >> threadDelay (15*1000*1000)
 
 data Env = Env { gitlabBaseUrl :: BaseUrl
                , gitlabToken   :: AccessToken
@@ -73,7 +78,7 @@ data Env = Env { gitlabBaseUrl :: BaseUrl
                }
 
 poll :: Env -> IO ()
-poll env = do
+poll env = handle onError $ do
     resp <- liftClientM env
             $ GL.getMergeRequestsByAssignee (gitlabToken env) (gitlabUser env)
     let interestingMRs :: [GL.MergeRequestResp]
@@ -84,15 +89,26 @@ poll env = do
                          , GL.mrState mr == GL.Opened
                          ]
     mapM_ (handleMergeRequest env) interestingMRs
+  where
+    onError (SomeException e) = print e
 
 handleMergeRequest :: Env -> GL.MergeRequestResp -> IO ()
 handleMergeRequest env@(Env{..}) mr = do
     let sha = Git.SHA $ GL.getSha $ GL.mrSha mr
-    mr' <- A.getMergeRequestByHead sha dbConn
-    case mr' of
-      Just _ -> 
+    mmr <- A.getMergeRequestByHead sha dbConn
+    case mmr of
+      Just mr' -> do
         -- Nothing to do
-        return ()
+        Just glmr <- DB.getGitLabMergeRequest (A.mrID mr') dbConn
+        if  | sha /= glmrOriginalHead glmr -> do
+                leaveNote $ "Head commit changed, aborting merge."
+
+            | DB.glmrLastCommentStatus glmr /= A.mrMergeRequestStatus mr' -> do
+                leaveNote $ T.pack $ "Current state " ++ show (A.mrMergeRequestStatus mr')
+                void $ DB.setLastCommentStatus (A.mrID mr') (A.mrMergeRequestStatus mr') dbConn
+
+            | otherwise -> return ()
+
       Nothing
         | Just managedBranch <- isInterestingBranch $ GL.mrTargetBranch mr -> do
           projRemote <- liftClientM env $ projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
@@ -106,13 +122,14 @@ handleMergeRequest env@(Env{..}) mr = do
                        Git.squash gitRepo (Git.CommitSha base) (Git.CommitSha sha)
                      else return sha
 
-          mr'' <- A.createMergeRequest managedBranch sha' dbConn
-          let noteBody = "I've added this to my merge queue."
-          liftClientM env 
-            $ GL.createMergeRequestNote gitlabToken Nothing (mrProjectId mr) (mrIid mr) noteBody
-          print mr''
+          mr' <- A.createMergeRequest managedBranch sha' dbConn
+          void $ DB.insertGitLabMergeRequest (A.mrID mr') sha (A.mrMergeRequestStatus mr') dbConn
+          leaveNote $ "I've added this to my merge queue."
           return ()
         | otherwise -> return ()
+  where
+    leaveNote text =
+      void $ liftClientM env $ GL.createMergeRequestNote gitlabToken Nothing (mrProjectId mr) (mrIid mr) text
 
 isInterestingBranch :: T.Text -> Maybe ManagedBranch
 isInterestingBranch branch
