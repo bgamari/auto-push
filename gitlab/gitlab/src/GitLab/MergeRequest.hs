@@ -53,6 +53,7 @@ instance FromJSON MergeRequestState where
 
 data MergeRequestResp
     = MergeRequestResp { mrId  :: MergeRequestId
+                       , mrIid :: MergeRequestIid
                        , mrProjectId :: ProjectId
                        , mrState :: MergeRequestState
                        , mrWorkInProgress :: Bool
@@ -68,6 +69,7 @@ instance FromJSON MergeRequestResp where
     parseJSON = withObject "merge request response" $ \o ->
       MergeRequestResp
         <$> o .: "id"
+        <*> o .: "iid"
         <*> o .: "project_id"
         <*> o .: "state"
         <*> o .: "work_in_progress"
@@ -86,9 +88,12 @@ getMergeRequestsByAssignee tok uid =
 ----------------------------------------------------------------------
 
 type CreateMergeRequestNote =
-    GitLabRoot :> "merge_requests"
+    GitLabRoot
     :> SudoParam
-    :> Capture "merge_request_id" MergeRequestId
+    :> "projects"
+    :> Capture "project_id" ProjectId
+    :> "merge_requests"
+    :> Capture "merge_request_id" MergeRequestIid
     :> "notes"
     :> ReqBody '[JSON] CreateNote
     :> Post '[JSON] ()
@@ -100,7 +105,7 @@ instance ToJSON CreateNote where
     toJSON (CreateNote{..}) = object
         [ "body" .= cnBody ]
 
-createMergeRequestNote :: AccessToken -> Maybe UserId -> MergeRequestId -> T.Text -> ClientM ()
-createMergeRequestNote tok sudo mrid body = do
-    client (Proxy :: Proxy CreateMergeRequestNote) (Just tok) sudo mrid (CreateNote body)
+createMergeRequestNote :: AccessToken -> Maybe UserId -> ProjectId -> MergeRequestIid -> T.Text -> ClientM ()
+createMergeRequestNote tok sudo proj mrid body = do
+    client (Proxy :: Proxy CreateMergeRequestNote) (Just tok) sudo proj mrid (CreateNote body)
 

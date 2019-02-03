@@ -61,7 +61,7 @@ main = do
                       , httpManager = mgr
                       , dbConn = conn
                       }
-        forever $ do threadDelay (60*1000*1000) >> poll env
+        forever $ do poll env >> threadDelay (60*1000*1000)
 
 data Env = Env { gitlabBaseUrl :: BaseUrl
                , gitlabToken   :: AccessToken
@@ -109,7 +109,7 @@ handleMergeRequest env@(Env{..}) mr = do
           mr'' <- A.createMergeRequest managedBranch sha' dbConn
           let noteBody = "I've added this to my merge queue."
           liftClientM env 
-            $ GL.createMergeRequestNote gitlabToken Nothing (mrId mr) noteBody
+            $ GL.createMergeRequestNote gitlabToken Nothing (mrProjectId mr) (mrIid mr) noteBody
           print mr''
           return ()
         | otherwise -> return ()

@@ -53,7 +53,10 @@ newtype SnippetId = SnippetId { getSnippetId :: Int }
                   deriving (Eq, Ord, Show, ToJSON, FromJSON, ToHttpApiData)
 
 newtype MergeRequestId = MergeRequestId Int
-                   deriving (Eq, Ord, Show, ToJSON, FromJSON, ToHttpApiData)
+                       deriving (Eq, Ord, Show, ToJSON, FromJSON, ToHttpApiData)
+
+newtype MergeRequestIid = MergeRequestIid Int
+                        deriving (Eq, Ord, Show, ToJSON, FromJSON, ToHttpApiData)
 
 newtype Labels = Labels (S.Set Text)
                deriving (Semigroup, Monoid, Show)
