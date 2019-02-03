@@ -2,6 +2,7 @@ packages: .
           circlehs/
           jenkins/
           gitlab/
+          gitlab/gitlab
 
 package auto-push
     optimization: False

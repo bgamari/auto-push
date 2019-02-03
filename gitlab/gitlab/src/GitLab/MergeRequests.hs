@@ -5,7 +5,12 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
 
-module GitLab.MergeRequests where
+module GitLab.MergeRequests 
+    ( getMergeRequestsByAssignee
+    , MergeRequestResp(..)
+    , MergeRequestState(..)
+    , createMergeRequestNote
+    ) where
 
 import Control.Monad
 import qualified Data.Text as T
@@ -29,7 +34,7 @@ import Control.Monad.IO.Class (liftIO)
 
 type GetMergeRequestsByAssignee =
     GitLabRoot :> "merge_requests"
-    :> Capture "assignee_id" UserId
+    :> QueryString "assignee_id" UserId
     :> Get '[JSON] [MergeRequestResp]
 
 data MergeRequestState = Opened | Closed | Locked | Merged
@@ -73,4 +78,27 @@ instance FromJSON MergeRequestResp where
 getMergeRequestsByAssignee :: AccessToken -> UserId -> ClientM [MergeRequestResp]
 getMergeRequestsByAssignee tok uid =
     client (Proxy :: Proxy GetMergeRequestsByAssignee) (Just tok) uid
+
+----------------------------------------------------------------------
+-- createMergeRequestNote
+----------------------------------------------------------------------
+
+type CreateMergeRequestNote =
+    GitLabRoot :> "merge_requests"
+    :> SudoParam
+    :> Capture "merge_request_id" MergeRequestId
+    :> "notes"
+    :> ReqBody '[JSON] CreateNote
+    :> Post '[JSON] ()
+
+data CreateNote
+    = CreateNote { cnBody :: T.Text }
+
+instance ToJSON CreateNote where
+    toJSON (CreateNote{..}) = object
+        [ "body" .= cnBody ]
+
+createMergeRequestNote :: AccessToken -> Maybe UserId -> MergeRequestId -> T.Text -> ClientM ()
+createMergeRequestNote tok sudo mrid body = do
+    client (Proxy :: Proxy CreateMergeRequestNote) (Just tok) sudo mrid (CreateNote body)
 
