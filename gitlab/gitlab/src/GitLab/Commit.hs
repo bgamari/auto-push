@@ -47,7 +47,7 @@ instance FromJSON CommitResp where
     parseJSON = withObject "commit response" $ \o ->
       CommitResp
         <$> o .: "id"
-        <*> (o .: "lastPipeline" >>= (.: "id"))
+        <*> (o .: "last_pipeline" >>= (.: "id"))
 
 getCommit :: AccessToken -> Maybe UserId -> ProjectId -> Sha -> ClientM CommitResp
 getCommit tok sudo pid sha =
