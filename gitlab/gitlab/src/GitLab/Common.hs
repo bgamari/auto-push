@@ -49,6 +49,9 @@ newtype ProjectId = ProjectId Int
 newtype PipelineId = PipelineId Int
                    deriving (Eq, Ord, Show, ToJSON, FromJSON, ToHttpApiData)
 
+newtype NoteId = NoteId { getNoteId :: Int }
+               deriving (Eq, Ord, Show, ToJSON, FromJSON, ToHttpApiData)
+
 newtype SnippetId = SnippetId { getSnippetId :: Int }
                   deriving (Eq, Ord, Show, ToJSON, FromJSON, ToHttpApiData)
 

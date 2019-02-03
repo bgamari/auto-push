@@ -96,7 +96,7 @@ type CreateMergeRequestNote =
     :> Capture "merge_request_id" MergeRequestIid
     :> "notes"
     :> ReqBody '[JSON] CreateNote
-    :> Post '[JSON] ()
+    :> Post '[JSON] CreateNoteResp
 
 data CreateNote
     = CreateNote { cnBody :: T.Text }
@@ -105,7 +105,14 @@ instance ToJSON CreateNote where
     toJSON (CreateNote{..}) = object
         [ "body" .= cnBody ]
 
-createMergeRequestNote :: AccessToken -> Maybe UserId -> ProjectId -> MergeRequestIid -> T.Text -> ClientM ()
+data CreateNoteResp = CreateNoteResp { cnId :: NoteId }
+
+instance FromJSON CreateNoteResp where
+    parseJSON = withObject "create note response" $ \o ->
+      CreateNoteResp
+        <$> o .: "id"
+
+createMergeRequestNote :: AccessToken -> Maybe UserId -> ProjectId -> MergeRequestIid -> T.Text -> ClientM NoteId
 createMergeRequestNote tok sudo proj mrid body = do
-    client (Proxy :: Proxy CreateMergeRequestNote) (Just tok) sudo proj mrid (CreateNote body)
+    cnId <$> client (Proxy :: Proxy CreateMergeRequestNote) (Just tok) sudo proj mrid (CreateNote body)
 
