@@ -5,16 +5,11 @@
 module Autopush.Server where
 
 import Control.Monad.IO.Class
-import Control.Monad.Catch
 import qualified Network.Wai.Handler.Warp as Warp
-import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Servant
-import Servant.Server
-import Data.Maybe
 
 import Git
 import Autopush.MergeRequest
-import Autopush.MergeBranch
 import Utils
 import qualified Autopush.DB as DB
 import Autopush.DB (withRepoDB)

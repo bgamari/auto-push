@@ -12,17 +12,13 @@ import Autopush.MergeBranch
 import Autopush.BuildDriver
 
 import Control.Lens
-import Control.Lens.TH
 import Control.Monad.Reader
-import Data.Text (Text)
 import qualified Data.Text as Text
 import Control.Concurrent.STM
 import Database.HDBC.Sqlite3 as SQLite
-import Data.Maybe
 import Control.Exception
 import System.Directory
 import System.FilePath
-import Data.String (IsString (fromString))
 
 -- | The 'origin' remote
 originRemote :: Remote

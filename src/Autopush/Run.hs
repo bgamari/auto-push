@@ -4,7 +4,6 @@ module Autopush.Run
 where
 
 import Autopush.Actions
-import Autopush.MergeRequest
 import Autopush.BuildDriver
 import Autopush.BuildDrivers.Script
 import Autopush.BuildDrivers.CircleCI
@@ -13,10 +12,8 @@ import Autopush.DB
 import Git (GitRepo)
 import qualified Git
 import System.Random
-import qualified Data.Text as Text
 import Data.Text (Text)
 import Control.Lens
-import Control.Lens.TH
 import Control.Monad
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -72,7 +69,7 @@ defRunConfig =
 dummyBuildDriver :: BuildDriver
 dummyBuildDriver = do
   BuildDriver
-    { _buildStart = \repo ref -> do
+    { _buildStart = \_repo _ref -> do
         token <- randomToken 8
         return (BuildID token)
     , _buildStatus = \_ -> do

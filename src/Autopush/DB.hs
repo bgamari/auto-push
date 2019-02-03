@@ -47,7 +47,7 @@ import qualified Database.HDBC as HDBC
 import Database.HDBC (withTransaction)
 import qualified Database.HDBC.Sqlite3 as SQLite
 import Data.FileEmbed (embedStringFile)
-import Database.YeshQL.HDBC (yesh, yesh1)
+import Database.YeshQL.HDBC (yesh1)
 import Control.Exception (bracket, Exception, throw)
 import Control.Monad (when)
 import System.FilePath
@@ -55,7 +55,7 @@ import Control.Monad (void)
 
 import Autopush.MergeRequest
 import Autopush.MergeBranch
-import Git ( SHA(..), Branch (..), GitRepo (..))
+import Git ( SHA(..), GitRepo (..))
 
 data RowNotFoundException = RowNotFoundException
   deriving (Show)
