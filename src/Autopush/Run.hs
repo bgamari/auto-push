@@ -8,6 +8,7 @@ import Autopush.BuildDriver
 import Autopush.BuildDrivers.Script
 import Autopush.BuildDrivers.CircleCI
 import Autopush.DB
+import Autopush.MergeRequest (WorkerID(..))
 
 import Git (GitRepo)
 import qualified Git
@@ -97,7 +98,7 @@ run repo config = do
     pool <- mkWorkingCopies repo dir (config ^. numWorkingCopies)
     driver <- mkBuildDriver (config ^. builderConfig)
     replicateConcurrently_ (config ^. numWorkers) $ do
-      workerID <- liftIO $ randomToken 8
+      workerID <- fmap WorkerID $ liftIO $ randomToken 8
       forever $ do
         catch
           (runAction repo pool driver $ runNextJob workerID)

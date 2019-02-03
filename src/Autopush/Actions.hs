@@ -26,11 +26,11 @@ originRemote = Remote "origin"
 
 -- | The ref which points to the original commits of a merge request.
 toOrigRef :: MergeRequestID -> Ref
-toOrigRef n = Ref $ "refs/heads/auto-push/orig/" <> Text.pack (show n)
+toOrigRef (MergeRequestID n) = Ref $ "refs/heads/auto-push/orig/" <> Text.pack (show n)
 
 -- | The ref which points to the most recent rebased commits of a merge request.
 toBuildRef :: MergeRequestID -> Ref
-toBuildRef n = Ref $ "refs/heads/auto-push/to-build/" <> Text.pack (show n)
+toBuildRef (MergeRequestID n) = Ref $ "refs/heads/auto-push/to-build/mr-" <> Text.pack (show n)
 
 data ActionContext
   = ActionContext

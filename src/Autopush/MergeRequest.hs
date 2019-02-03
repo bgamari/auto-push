@@ -11,26 +11,49 @@
 module Autopush.MergeRequest
 where
 
-import Git (SHA(..), Branch (..))
+import Git (SHA(..))
 import Data.Text (Text)
 import Data.Convertible (Convertible, safeConvert, convError)
 import Text.Read (readMaybe)
-import Database.HDBC (SqlValue (..), fromSql, toSql)
+import Database.HDBC (SqlValue (..), fromSql)
 import Database.YeshQL.HDBC.SqlRow.TH (makeSqlRow)
-import Database.YeshQL.HDBC.SqlRow.Class (SqlRow)
 import Data.ByteString.UTF8 as UTF8
-import Data.String
 import Data.Aeson
 import GHC.Generics
+import Servant (ToHttpApiData, FromHttpApiData)
 
 import Autopush.MergeBranch
 import Autopush.BuildDriver (BuildID)
 
-type MergeRequestID = Integer
+newtype MergeRequestID = MergeRequestID Integer
+                       deriving stock (Show, Eq, Ord)
+                       deriving newtype (ToJSON, FromJSON,
+                                         FromHttpApiData, ToHttpApiData)
 
-type JobID = Integer
+instance Convertible MergeRequestID SqlValue where
+    safeConvert (MergeRequestID x) = pure $ SqlInteger x
+instance Convertible SqlValue MergeRequestID where
+    safeConvert (SqlInteger x) = pure $ MergeRequestID x
 
-type WorkerID = Text
+newtype JobID = JobID Integer
+              deriving stock (Show, Eq, Ord)
+              deriving newtype (ToJSON, FromJSON,
+                                FromHttpApiData, ToHttpApiData)
+
+instance Convertible JobID SqlValue where
+    safeConvert (JobID x) = pure $ SqlInteger x
+instance Convertible SqlValue JobID where
+    safeConvert (SqlInteger x) = pure $ JobID x
+
+newtype WorkerID = WorkerID Text
+                 deriving stock (Show, Eq, Ord)
+                 deriving newtype (ToJSON, FromJSON,
+                                   FromHttpApiData, ToHttpApiData)
+
+instance Convertible WorkerID SqlValue where
+    safeConvert (WorkerID x) = safeConvert x
+instance Convertible SqlValue WorkerID where
+    safeConvert = fmap WorkerID . safeConvert
 
 -- | Represent a merge request and its current processing status.
 data MergeRequest
