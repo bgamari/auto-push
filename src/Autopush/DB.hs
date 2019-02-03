@@ -297,7 +297,6 @@ createMergeRequest branch head conn = do
       , merged = :m.mrMerged
       , build_id = :m.mrBuildID
     WHERE id = :m.mrID
-    LIMIT 1
 |]
 
 updateMergeRequest :: MergeRequest -> SQLite.Connection -> IO ()

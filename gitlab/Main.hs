@@ -55,8 +55,7 @@ main :: IO ()
 main = do
     cfg <- execParser $ info (helper <*> config) mempty
 
-    let repo :: Git.GitRepo
-        repo = Git.GitRepo "."
+    repo <- Git.GitRepo . projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
 
     A.initializeRepoDB repo
     DB.initializeRepoDB repo
@@ -107,7 +106,7 @@ poll env = handle onError $ do
 
 handleMergeRequest :: Env -> GL.MergeRequestResp -> IO ()
 handleMergeRequest env@(Env{..}) mr
-  | Just managedBranch <- isInterestingBranch $ GL.mrTargetBranch mr = do
+  | Just managedBranch <- isInterestingBranch $ GL.mrTargetBranch mr = withTransaction dbConn $ const $ do
     mb_glmr <- DB.getGitLabMergeRequest (GL.mrId mr) dbConn
     case mb_glmr of
       -- This is the first time we have seen this MR, kick it off
@@ -143,10 +142,9 @@ handleMergeRequest env@(Env{..}) mr
                      Git.squash gitRepo (Git.CommitSha base) (Git.CommitSha sha)
                    else return sha
 
-        withTransaction dbConn $ const $ do
-            mr' <- A.createMergeRequest managedBranch sha' dbConn
-            DB.insertGitLabMergeRequest (A.mrID mr') (GL.mrId mr) sha (A.mrMergeRequestStatus mr') dbConn
-            A.pushJob (mrID mr') dbConn
+        mr' <- A.createMergeRequest managedBranch sha' dbConn
+        DB.insertGitLabMergeRequest (A.mrID mr') (GL.mrId mr) sha (A.mrMergeRequestStatus mr') dbConn
+        A.pushJob (mrID mr') dbConn
         leaveNote $ "I have added this to my merge queue."
 
     sha = Git.SHA $ GL.getSha $ GL.mrSha mr
@@ -179,7 +177,7 @@ gitlabBuildDriver env@Env{..} =
     buildStart repo ref = liftClientM env $ do
       sha <- liftIO $ Git.resolveRef repo ref
       projRemote <- projSshUrl <$> GL.getProject gitlabToken Nothing gitlabProject
-      liftIO $ Git.push repo (Git.Remote projRemote) (Git.CommitSha sha) ref
+      liftIO $ Git.push' repo True (Git.Remote projRemote) (Git.CommitSha sha) ref
       commit <- GL.getCommit gitlabToken Nothing gitlabProject (GL.Sha $ Git.getSHA sha)
       let pipelineId = commitLastPipeline commit
       return $ pipelineToBuildId $ pipelineId

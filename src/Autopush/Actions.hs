@@ -205,7 +205,7 @@ scheduleMR reqId = db $ \conn -> do
         logMsg $ "Rebased " ++ show reqId ++ ": " ++ show commits
 
         -- Push rebased commits
-        Git.push repo originRemote (CommitSha head') (toBuildRef reqId)
+        Git.push' repo True originRemote (CommitSha head') (toBuildRef reqId)
         logMsg $ "Pushed rebase " ++ show reqId ++ ": " ++ show commits
 
         updateMergeRequest

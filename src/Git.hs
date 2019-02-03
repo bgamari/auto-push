@@ -32,6 +32,7 @@ module Git
     , Remote(..)
     , gitRepoToRemote
     , push
+    , push'
     , fetch
     , remoteUpdate
       -- * Exceptions
@@ -235,10 +236,15 @@ gitRepoToRemote :: GitRepo -> Remote
 gitRepoToRemote (GitRepo repo) = Remote $ T.pack repo
 
 push :: GitRepo -> Remote -> Commit -> Ref -> IO ()
-push repo (Remote remote) commit ref =
-    void $ runGit repo "push" [ T.unpack remote
-                              , showCommit commit ++ ":" ++ showRef ref
-                              ] ""
+push repo = push' repo False
+
+push' :: GitRepo -> Bool -> Remote -> Commit -> Ref -> IO ()
+push' repo forced (Remote remote) commit ref =
+    void $ runGit repo "push" args "" 
+  where
+    args = [ T.unpack remote
+           , showCommit commit ++ ":" ++ showRef ref
+           ] ++ [ "--force" | forced ]
 
 clone :: GitRepo -> FilePath -> IO GitRepo
 clone repo dest = do
