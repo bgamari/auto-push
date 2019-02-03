@@ -1,6 +1,7 @@
 packages: .
           circlehs/
           jenkins/
+          gitlab/
 
 package auto-push
     optimization: False

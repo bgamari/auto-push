@@ -1,0 +1,37 @@
+name:                auto-push-gitlab
+version:             0.1.0.0
+synopsis:            A auto-push frontend for rGitLab
+-- description:
+homepage:            http://github.com/bgamari/auto-push
+license:             BSD3
+license-file:        LICENSE
+author:              Ben Gamari
+maintainer:          ben@smart-cactus.org
+copyright:           (c) 2019 Ben Gamari
+category:            Development
+build-type:          Simple
+extra-source-files:  CHANGELOG.md
+cabal-version:       >=1.10
+
+executable autopush-gitlab
+  main-is:             Main.hs
+  -- other-modules:
+  other-extensions:    TypeApplications, TypeOperators, GeneralizedNewtypeDeriving, OverloadedStrings, RecordWildCards, DataKinds, ScopedTypeVariables
+  build-depends:       base >=4.11 && <4.12,
+                       text >=1.2 && <1.3,
+                       containers >=0.5 && <0.6,
+                       time >=1.8 && <1.9,
+                       mtl >=2.2 && <2.3,
+                       bytestring >=0.10 && <0.11,
+                       process >=1.6 && <1.7,
+                       directory >=1.3 && <1.4,
+                       servant-client,
+                       servant,
+                       HDBC-sqlite3,
+                       http-client,
+                       http-client-tls,
+                       optparse-applicative,
+                       aeson,
+                       auto-push
+  -- hs-source-dirs:
+  default-language:    Haskell2010

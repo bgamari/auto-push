@@ -27,6 +27,7 @@ module Git
     , checkoutBranch
     , updateRefs
     , UpdateRefAction(..)
+    , squash
       -- * Remotes
     , Remote(..)
     , gitRepoToRemote
@@ -44,6 +45,7 @@ import Control.Monad
 import GHC.Generics
 import System.Exit
 import Control.Exception
+import qualified Data.List.NonEmpty as NE
 import Prelude hiding (head)
 
 import qualified Data.Text as T
@@ -76,8 +78,8 @@ data GitException = GitException { gitRepo     :: GitRepo
                   deriving anyclass (Exception)
 
 -- | A range of commits which we can merge.
-data CommitRange = CommitRange { baseCommit :: SHA
-                               , headCommit :: SHA
+data CommitRange = CommitRange { baseCommit :: SHA  -- ^ exclusive
+                               , headCommit :: SHA  -- ^ inclusive
                                }
                  deriving (Show, Generic)
 instance ToJSON CommitRange
@@ -185,6 +187,7 @@ isBranch (Ref b) = Branch <$> T.stripPrefix "refs/heads/" b
 branchRef :: Branch -> Ref
 branchRef (Branch b) = Ref $ "refs/heads/" <> b
 
+-- | A commit may be identified by either a ref or an explicit hash.
 data Commit = CommitSha SHA
             | CommitRef Ref
 
@@ -250,3 +253,25 @@ fetch repo (Remote remote) refs =
 remoteUpdate :: GitRepo -> Remote -> IO ()
 remoteUpdate repo (Remote remote) =
     void $ runGit repo "remote" [ "update", T.unpack remote ] ""
+
+-- | Squash a range of commits, keeping the commit message from the first
+-- commit in the range.
+squash :: GitRepo 
+       -> Commit   -- ^ base commit (exclusive)
+       -> Commit   -- ^ head commit (inclusive)
+       -> IO SHA
+squash repo base head = do
+    commits <- revList repo base head
+    commits' <- maybe (fail "Git.squash: empty commit range") pure (NE.nonEmpty commits)
+    checkout repo True head
+    void $ runGit repo "reset" [ "--soft", showSHA (NE.last commits') ] ""
+    void $ runGit repo "commit" [ "--amend", "--no-edit" ] ""
+    resolveRef repo (Ref "HEAD")
+
+revList :: GitRepo 
+        -> Commit   -- ^ base commit (exclusive)
+        -> Commit   -- ^ head commit (inclusive)
+        -> IO [SHA]
+revList repo base head = do
+    out <- runGit repo "rev-list" [ showCommit base ++ ".." ++ showCommit head ] ""
+    return $ init $ map (SHA . T.pack) (lines out)
